@@ -10,6 +10,25 @@ LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-
 
 st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
 
+# Inject Custom CSS to handle the song body display perfectly
+st.markdown("""
+    <style>
+    .song-box {
+        background-color: #f1f1f1;
+        color: #111;
+        padding: 25px;
+        border-radius: 8px;
+        border-left: 6px solid #333;
+        font-family: 'Courier New', Courier, monospace;
+        white-space: pre-wrap;
+        font-size: 16px;
+        line-height: 1.6;
+        margin-bottom: 20px;
+    }
+    .song-box b { color: #d32f2f; } /* Makes bold chords stand out in red */
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- 2. DATA LOADING ---
 @st.cache_data
 def load_data():
@@ -67,46 +86,33 @@ else:
 
 st.divider()
 
-# --- 7. ONE COLUMN DISPLAY WITH INLINE EXPANSION ---
+# --- 7. DISPLAY LOGIC ---
 for idx, s_data in enumerate(display_list):
-    # Main Song Row
     col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
     
     col1.markdown(f"### {s_data['title']} — {s_data['artist']}")
     
-    # Toggle View Logic
     is_expanded = st.session_state.expanded_song == s_data['title']
     if col2.button("📖 Close" if is_expanded else "👁️ View", key=f"view_{idx}", use_container_width=True):
         st.session_state.expanded_song = s_data['title'] if not is_expanded else None
         st.rerun()
 
-    # PDF Link
     col3.link_button("📂 PDF", s_data['url'], use_container_width=True)
     
-    # Favorite Button
     is_fav = s_data['title'] in st.session_state.favorites
     if col4.button("❤️" if is_fav else "🤍", key=f"fav_{idx}", use_container_width=True):
         if is_fav: st.session_state.favorites.remove(s_data['title'])
         else: st.session_state.favorites.append(s_data['title'])
         st.rerun()
 
-    # THE EXPANDED WINDOW
     if is_expanded:
-        # 1. Process the body text for bold brackets
         raw_body = s_data.get('body', "No lyrics found.")
-        # Replaces [Anything] with **[Anything]**
-        bolded_body = re.sub(r'(\[.*?\])', r'**\1**', raw_body)
         
-        # 2. Render inside a clean markdown block
-        # Using a triple-backtick 'fenced' block inside HTML for perfect alignment
-        st.markdown(
-            f"""
-            <div style="background-color: #f1f1f1; color: #111; padding: 20px; border-radius: 8px; border-left: 6px solid #333; margin-top: 10px;">
-                <pre style="font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; font-size: 14px; line-height: 1.5; border: none; background: none; margin: 0; padding: 0;">{bolded_body}</pre>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+        # IMPROVED BOLDING: Use HTML <b> tags for reliability inside the div
+        bolded_body = re.sub(r'(\[.*?\])', r'<b>\1</b>', raw_body)
+        
+        # Using a single f-string to render the div container
+        st.markdown(f'<div class="song-box">{bolded_body}</div>', unsafe_allow_html=True)
         
         if st.button("🔼 Close Lyrics", key=f"close_{idx}"):
             st.session_state.expanded_song = None
