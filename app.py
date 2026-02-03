@@ -59,30 +59,24 @@ with st.sidebar:
     st.subheader("🎲 Randomizer")
     col_r1, col_r2 = st.columns(2)
     
-    # Existing Single Random Button
+    # Logic to get the current pool based on sidebar settings
+    pool = [s for s in songs if s['difficulty'] <= diff_filter]
+    if xmas_mode == "Standard":
+        pool = [s for s in pool if "snow" not in s['url'].lower()]
+    elif xmas_mode == "Christmas Only":
+        pool = [s for s in pool if "snow" in s['url'].lower()]
+
+    # Pick 1 Button
     if col_r1.button("Pick 1", use_container_width=True):
-        st.session_state.random_set = [] # Clear set
-        pool = [s for s in songs if s['difficulty'] <= diff_filter]
-        if xmas_mode == "Standard":
-            pool = [s for s in pool if "snow" not in s['url'].lower()]
-        elif xmas_mode == "Christmas Only":
-            pool = [s for s in pool if "snow" in s['url'].lower()]
-        
         if pool:
             pick = random.choice(pool)
             st.session_state.random_set = [pick['title']]
             st.session_state.expanded_song = pick['title']
             st.balloons()
 
-    # NEW: Random 10 Button
+    # Pick 10 Button
     if col_r2.button("Pick 10", use_container_width=True):
         st.session_state.expanded_song = None
-        pool = [s for s in songs if s['difficulty'] <= diff_filter]
-        if xmas_mode == "Standard":
-            pool = [s for s in pool if "snow" not in s['url'].lower()]
-        elif xmas_mode == "Christmas Only":
-            pool = [s for s in pool if "snow" in s['url'].lower()]
-        
         if len(pool) >= 10:
             picks = random.sample(pool, 10)
             st.session_state.random_set = [p['title'] for p in picks]
@@ -90,13 +84,28 @@ with st.sidebar:
             st.session_state.random_set = [p['title'] for p in pool]
         st.snow() if xmas_mode == "Christmas Only" else st.balloons()
 
+    # CLEANER SIDEBAR UI FOR RANDOM SELECTION
     if st.session_state.random_set:
-        if st.button("🗑️ Clear Random Selection", use_container_width=True):
+        count = len(st.session_state.random_set)
+        st.success(f"Generated {count} random song(s)")
+        
+        # Save All Button
+        if st.button("➕ Add all to Setlist", use_container_width=True):
+            for title in st.session_state.random_set:
+                if title not in st.session_state.favorites:
+                    st.session_state.favorites.append(title)
+            st.toast("Added songs to setlist!")
+            
+        # Clear Random Button
+        if st.button("🗑️ Clear Selection", use_container_width=True):
             st.session_state.random_set = []
+            st.session_state.expanded_song = None
             st.rerun()
 
     st.divider()
-    st.subheader("⭐ Setlist")
+    st.subheader("⭐ My Setlist")
+    if not st.session_state.favorites:
+        st.info("Setlist is empty.")
     for fav in st.session_state.favorites:
         c1, c2 = st.columns([4, 1])
         c1.caption(fav)
@@ -118,20 +127,16 @@ filtered_songs = [s for s in current_list if s['difficulty'] <= diff_filter]
 st.title("🎸 Moselele Database")
 search_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...")
 
-# Build Display List
 if search_query:
     q = search_query.lower()
     display_list = [s for s in filtered_songs if q in s['title'].lower() or q in s['artist'].lower() or q in s.get('body', '').lower()]
 else:
     display_list = filtered_songs
 
-# --- PRIORITY LOGIC: Move random set to top ---
+# PRIORITY LOGIC
 if st.session_state.random_set:
-    # Get the song objects for the random set
     featured = [s for s in songs if s['title'] in st.session_state.random_set]
-    # Remove these from the main list to avoid duplicates
     display_list = [s for s in display_list if s['title'] not in st.session_state.random_set]
-    # Put them at the front
     display_list = featured + display_list
 
 display_list = display_list[:50]
@@ -141,7 +146,6 @@ st.divider()
 # --- 7. DISPLAY LOGIC ---
 for idx, s_data in enumerate(display_list):
     is_random = s_data['title'] in st.session_state.random_set
-    
     col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
     
     title_prefix = "🎲 FEATURED: " if is_random else ""
