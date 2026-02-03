@@ -10,7 +10,7 @@ LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-
 
 st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
 
-# Inject Custom CSS to handle the song body display perfectly
+# Inject Custom CSS for the song body
 st.markdown("""
     <style>
     .song-box {
@@ -25,7 +25,7 @@ st.markdown("""
         line-height: 1.6;
         margin-bottom: 20px;
     }
-    .song-box b { color: #d32f2f; } /* Makes bold chords stand out in red */
+    .song-box b { color: #d32f2f; font-weight: bold; } 
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,12 +46,33 @@ if 'favorites' not in st.session_state:
 if 'expanded_song' not in st.session_state:
     st.session_state.expanded_song = None
 
-# --- 4. SIDEBAR FILTERS ---
+# --- 4. SIDEBAR & FILTERS ---
 with st.sidebar:
     st.image(LOGO_URL, width=150)
     st.header("🔍 Filters")
     xmas_mode = st.radio("🎄 Season", ["Standard", "Christmas Only", "All"], index=0)
     diff_filter = st.slider("Max Difficulty", 1, 5, 5)
+    
+    st.divider()
+    
+    # --- NEW: RANDOM SONG BUTTON IN SIDEBAR ---
+    st.subheader("🎲 Randomizer")
+    if st.button("Pick a Random Song", use_container_width=True):
+        # Filter pool based on current settings
+        if xmas_mode == "Standard":
+            pool = [s for s in songs if "snow" not in s['url'].lower() and "snow" not in s['title'].lower()]
+        elif xmas_mode == "Christmas Only":
+            pool = [s for s in songs if "snow" in s['url'].lower() or "snow" in s['title'].lower()]
+        else:
+            pool = songs
+        
+        pool = [s for s in pool if s['difficulty'] <= diff_filter]
+        
+        if pool:
+            pick = random.choice(pool)
+            st.session_state.expanded_song = pick['title']
+            st.balloons()
+            st.success(f"Selected: {pick['title']}")
     
     st.divider()
     st.subheader("⭐ Setlist")
@@ -107,11 +128,8 @@ for idx, s_data in enumerate(display_list):
 
     if is_expanded:
         raw_body = s_data.get('body', "No lyrics found.")
-        
-        # IMPROVED BOLDING: Use HTML <b> tags for reliability inside the div
+        # Bold brackets logic using HTML tags for CSS styling
         bolded_body = re.sub(r'(\[.*?\])', r'<b>\1</b>', raw_body)
-        
-        # Using a single f-string to render the div container
         st.markdown(f'<div class="song-box">{bolded_body}</div>', unsafe_allow_html=True)
         
         if st.button("🔼 Close Lyrics", key=f"close_{idx}"):
