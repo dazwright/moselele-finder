@@ -7,62 +7,33 @@ from io import BytesIO
 from thefuzz import process
 
 # --- PAGE CONFIG ---
-# This updates the browser tab icon to the official Moselele favicon
-FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
-st.set_page_config(page_title="Moselele Database", page_icon=FAVICON_URL, layout="wide")
+FAVICON = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
+st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
 
-# --- LOGO & TITLE ---
-# Official Moselele logo for the header and sidebar
+# Official Moselele logo
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
-col1, col2 = st.columns([1, 5])
-with col1:
-    st.image(LOGO_URL, width=120)
-with col2:
-    st.title("Moselele Database")
-    st.caption("The complete searchable index of individual song sheets.")
-
-# --- DATA LOADING ---
 @st.cache_data
 def load_data():
     try:
         with open('song_index.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        st.error("Index file not found! Please run your scraper.py first.")
         return []
 
 songs = load_data()
-song_titles = [s['title'] for s in songs]
 
 # --- SESSION STATE ---
 if 'favorites' not in st.session_state:
     st.session_state.favorites = []
 
-# URL Query Parameter handling (for syncing setlists)
-query_params = st.query_params
-if "setlist" in query_params and not st.session_state.favorites:
-    shared_titles = query_params["setlist"].split(",")
-    st.session_state.favorites = [t for t in shared_titles if t in song_titles]
-
-# --- SIDEBAR: FILTERS & SHARING ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.image(LOGO_URL, width=150)
-    st.divider()
-    
     st.header("🔍 Filters")
-    diff_filter = st.slider("Difficulty (1-Easy, 5-Hard)", 1, 5, 5)
+    diff_filter = st.slider("Difficulty", 1, 5, 5)
     
-    all_artists = sorted(list(set([s.get('artist', 'Unknown') for s in songs])))
-    artist_choice = st.selectbox("Artist", ["All"] + all_artists)
-    
-    st.subheader("🎸 Chord Check")
-    known_chords = st.multiselect("Hide songs containing unknown chords:", 
-                                  ["C", "G", "F", "Am", "Dm", "Em", "G7", "C7", "D", "A", "E", "Bb", "Bm"])
-    
-    st.divider()
-    
-    st.subheader("⭐ Current Setlist")
+    st.subheader("⭐ Setlist")
     if st.session_state.favorites:
         for fav in st.session_state.favorites:
             c1, c2 = st.columns([4, 1])
@@ -70,77 +41,62 @@ with st.sidebar:
             if c2.button("🗑️", key=f"del_{fav}"):
                 st.session_state.favorites.remove(fav)
                 st.rerun()
-        
-        # QR Syncing
-        st.divider()
-        # Replace 'moselele-finder.streamlit.app' with your actual live URL after deploying
-        base_url = "https://moselele-finder.streamlit.app/" 
-        encoded = urllib.parse.quote(",".join(st.session_state.favorites))
-        share_url = f"{base_url}?setlist={encoded}"
-        
-        qr = segno.make(share_url)
-        out = BytesIO()
-        qr.save(out, kind='png', scale=4)
-        st.image(out.getvalue(), caption="Scan to sync setlist")
     else:
-        st.info("Your setlist is empty.")
+        st.info("Setlist is empty.")
 
-# --- FILTERING LOGIC ---
-filtered_songs = [
-    s for s in songs 
-    if s['difficulty'] <= diff_filter 
-    and (artist_choice == "All" or s['artist'] == artist_choice)
-]
+# --- MAIN INTERFACE ---
+col_logo, col_title = st.columns([1, 5])
+with col_logo:
+    st.image(LOGO_URL, width=100)
+with col_title:
+    st.title("Moselele Database")
 
-if known_chords:
-    filtered_songs = [
-        s for s in filtered_songs 
-        if all(chord in known_chords for chord in s.get('chords', []))
-    ]
+# Filter Logic
+filtered_songs = [s for s in songs if s['difficulty'] <= diff_filter]
 
-# --- SEARCH & DISPLAY ---
-query = st.text_input("Search by song or artist:", placeholder="e.g. 'Beatles' or 'Jolene'...")
+# Search Bar (Searches Title, Artist, and Body)
+query = st.text_input("Search title, artist, or lyrics:", placeholder="e.g. 'Creep' or 'Raindrops keep falling'")
 
 if query:
-    # 1. Create a searchable string for every filtered song: "Title Artist"
-    # We use a dictionary to map the "Search String" back to the "Original Song Object"
-    search_map = {f"{s['title']} {s['artist']}": s for s in filtered_songs}
-    search_strings = list(search_map.keys())
-    
-    # 2. Perform Fuzzy Match against the combined strings
-    matches = process.extract(query, search_strings, limit=15)
-    
-    # 3. Filter for matches with a confidence score > 55
-    display_list = [search_map[m[0]] for m in matches if m[1] > 55]
+    query_l = query.lower()
+    results = []
+    for s in filtered_songs:
+        if query_l in s['title'].lower() or query_l in s['artist'].lower() or query_l in s.get('body', '').lower():
+            results.append(s)
+    display_list = results[:20]
 else:
-    # If no query, just show the first 20 songs from the filtered list
     display_list = filtered_songs[:20]
 
-if not display_list:
-    st.warning("No songs found matching those filters or search terms.")
-else:
-    # --- DISPLAY RESULTS ---
-    cols = st.columns(2)
-    for idx, s_data in enumerate(display_list):
-        # We use s_data directly now since it's the full dictionary
-        with cols[idx % 2]:
-            with st.expander(f"**{s_data['title']}** — {s_data['artist']}"):
-                st.write(f"💪 **Difficulty:** {s_data['difficulty']} | 🎸 **Chords:** {', '.join(s_data.get('chords', []))}")
-                
-                b1, b2 = st.columns(2)
-                b1.link_button("📄 Open PDF", s_data['url'], use_container_width=True)
-                
-                is_fav = s_data['title'] in st.session_state.favorites
-                label = "❤️ In Setlist" if is_fav else "🤍 Add to Setlist"
-                if b2.button(label, key=f"btn_{s_data['title']}_{idx}", use_container_width=True):
-                    if is_fav:
-                        st.session_state.favorites.remove(s_data['title'])
-                    else:
-                        st.session_state.favorites.append(s_data['title'])
-                    st.rerun()
+# --- DISPLAY RESULTS ---
 st.divider()
-if st.button("🎲 Random Song Recommendation"):
+
+for idx, s_data in enumerate(display_list):
+    # Each song gets its own expander
+    with st.expander(f"📖 **{s_data['title']}** — {s_data['artist']} (Level {s_data['difficulty']})"):
+        
+        # Action Buttons
+        btn_col1, btn_col2 = st.columns(2)
+        btn_col1.link_button("📂 Open Original PDF", s_data['url'], use_container_width=True)
+        
+        is_fav = s_data['title'] in st.session_state.favorites
+        if btn_col2.button("❤️ Remove" if is_fav else "🤍 Add to Setlist", key=f"fav_{idx}", use_container_width=True):
+            if is_fav: st.session_state.favorites.remove(s_data['title'])
+            else: st.session_state.favorites.append(s_data['title'])
+            st.rerun()
+
+        st.write("---")
+        
+        # DISPLAY FULL BODY
+        if s_data.get('body'):
+            st.subheader("Lyrics & Chords")
+            # We use st.text to preserve the \n and monospace font for chord alignment
+            st.text(s_data['body'])
+        else:
+            st.warning("Full text not available for this song. Please use the PDF button above.")
+
+st.divider()
+if st.button("🎲 Random Song"):
     if filtered_songs:
         pick = random.choice(filtered_songs)
-        st.success(f"How about **{pick['title']}** by **{pick['artist']}**?")
-        st.link_button("View Sheet", pick['url'])
+        st.success(f"Try playing: **{pick['title']}**")
+        st.text(pick.get('body', 'Text not available'))
