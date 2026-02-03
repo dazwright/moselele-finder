@@ -57,16 +57,16 @@ with st.sidebar:
     st.divider()
     
     st.subheader("🎲 Randomizer")
-    col_r1, col_r2 = st.columns(2)
     
-    # Logic to get the current pool based on sidebar settings
+    # 4a. Logic performed silently (no st.write/st.markdown here)
     pool = [s for s in songs if s['difficulty'] <= diff_filter]
     if xmas_mode == "Standard":
         pool = [s for s in pool if "snow" not in s['url'].lower()]
     elif xmas_mode == "Christmas Only":
         pool = [s for s in pool if "snow" in s['url'].lower()]
 
-    # Pick 1 Button
+    col_r1, col_r2 = st.columns(2)
+    
     if col_r1.button("Pick 1", use_container_width=True):
         if pool:
             pick = random.choice(pool)
@@ -74,29 +74,24 @@ with st.sidebar:
             st.session_state.expanded_song = pick['title']
             st.balloons()
 
-    # Pick 10 Button
     if col_r2.button("Pick 10", use_container_width=True):
         st.session_state.expanded_song = None
         if len(pool) >= 10:
-            picks = random.sample(pool, 10)
-            st.session_state.random_set = [p['title'] for p in picks]
+            st.session_state.random_set = [p['title'] for p in random.sample(pool, 10)]
         else:
             st.session_state.random_set = [p['title'] for p in pool]
         st.snow() if xmas_mode == "Christmas Only" else st.balloons()
 
-    # CLEANER SIDEBAR UI FOR RANDOM SELECTION
+    # 4b. Status and Actions (Only shows if a set exists)
     if st.session_state.random_set:
-        count = len(st.session_state.random_set)
-        st.success(f"Generated {count} random song(s)")
+        st.success(f"Generated {len(st.session_state.random_set)} songs")
         
-        # Save All Button
         if st.button("➕ Add all to Setlist", use_container_width=True):
             for title in st.session_state.random_set:
                 if title not in st.session_state.favorites:
                     st.session_state.favorites.append(title)
-            st.toast("Added songs to setlist!")
-            
-        # Clear Random Button
+            st.toast("Songs added!")
+
         if st.button("🗑️ Clear Selection", use_container_width=True):
             st.session_state.random_set = []
             st.session_state.expanded_song = None
@@ -106,14 +101,17 @@ with st.sidebar:
     st.subheader("⭐ My Setlist")
     if not st.session_state.favorites:
         st.info("Setlist is empty.")
-    for fav in st.session_state.favorites:
-        c1, c2 = st.columns([4, 1])
-        c1.caption(fav)
-        if c2.button("🗑️", key=f"del_{fav}"):
-            st.session_state.favorites.remove(fav)
-            st.rerun()
+    else:
+        # We loop and display favorites without printing the list object itself
+        for fav in st.session_state.favorites:
+            c1, c2 = st.columns([4, 1])
+            c1.caption(fav)
+            if c2.button("🗑️", key=f"del_{fav}"):
+                st.session_state.favorites.remove(fav)
+                st.rerun()
 
-# --- 5. FILTERING LOGIC ---
+# --- 5. DATA FILTERING ---
+# We keep this outside the sidebar to ensure the main window updates correctly
 if xmas_mode == "Standard":
     current_list = [s for s in songs if "snow" not in s['url'].lower() and "snow" not in s['title'].lower()]
 elif xmas_mode == "Christmas Only":
@@ -125,7 +123,7 @@ filtered_songs = [s for s in current_list if s['difficulty'] <= diff_filter]
 
 # --- 6. MAIN INTERFACE ---
 st.title("🎸 Moselele Database")
-search_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...")
+search_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...", key="main_search_input")
 
 if search_query:
     q = search_query.lower()
@@ -133,7 +131,7 @@ if search_query:
 else:
     display_list = filtered_songs
 
-# PRIORITY LOGIC
+# Pin Random Songs to Top
 if st.session_state.random_set:
     featured = [s for s in songs if s['title'] in st.session_state.random_set]
     display_list = [s for s in display_list if s['title'] not in st.session_state.random_set]
@@ -143,13 +141,13 @@ display_list = display_list[:50]
 
 st.divider()
 
-# --- 7. DISPLAY LOGIC ---
+# --- 7. DISPLAY LOOP ---
 for idx, s_data in enumerate(display_list):
     is_random = s_data['title'] in st.session_state.random_set
     col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
     
-    title_prefix = "🎲 FEATURED: " if is_random else ""
-    col1.markdown(f"### {title_prefix}{s_data['title']} — {s_data['artist']}")
+    title_label = f"🎲 FEATURED: {s_data['title']}" if is_random else s_data['title']
+    col1.markdown(f"### {title_label} — {s_data['artist']}")
     
     is_expanded = st.session_state.expanded_song == s_data['title']
     if col2.button("📖 Close" if is_expanded else "👁️ View", key=f"view_{idx}", use_container_width=True):
