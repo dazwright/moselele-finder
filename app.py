@@ -36,6 +36,8 @@ with st.sidebar:
     
     st.divider()
     st.subheader("⭐ Setlist")
+    if not st.session_state.favorites:
+        st.info("Setlist is empty.")
     for fav in st.session_state.favorites:
         c1, c2 = st.columns([4, 1])
         c1.caption(fav)
@@ -88,21 +90,26 @@ for idx, s_data in enumerate(display_list):
         else: st.session_state.favorites.append(s_data['title'])
         st.rerun()
 
-    # THE EXPANDED WINDOW (Appears right under the result)
+    # THE EXPANDED WINDOW
     if is_expanded:
-        with st.container():
-            # Bold [Brackets] logic
-            raw_body = s_data.get('body', "No lyrics found.")
-            bolded_body = re.sub(r'(\[.*?\])', r'**\1**', raw_body)
-            
-            # Rendering in a styled box
-            st.markdown(f"""
-            <div style="background-color: #f9f9f9; padding: 25px; border-left: 5px solid #000; 
-                        font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; 
-                        color: #333; line-height: 1.4; border-radius: 5px; margin: 10px 0;">
-            {bolded_body}
+        # 1. Process the body text for bold brackets
+        raw_body = s_data.get('body', "No lyrics found.")
+        # Replaces [Anything] with **[Anything]**
+        bolded_body = re.sub(r'(\[.*?\])', r'**\1**', raw_body)
+        
+        # 2. Render inside a clean markdown block
+        # Using a triple-backtick 'fenced' block inside HTML for perfect alignment
+        st.markdown(
+            f"""
+            <div style="background-color: #f1f1f1; color: #111; padding: 20px; border-radius: 8px; border-left: 6px solid #333; margin-top: 10px;">
+                <pre style="font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; font-size: 14px; line-height: 1.5; border: none; background: none; margin: 0; padding: 0;">{bolded_body}</pre>
             </div>
-            """, unsafe_allow_html=True)
-            st.button("🔼 Close Lyrics", key=f"close_{idx}", on_click=lambda: st.session_state.update({"expanded_song": None}))
+            """, 
+            unsafe_allow_html=True
+        )
+        
+        if st.button("🔼 Close Lyrics", key=f"close_{idx}"):
+            st.session_state.expanded_song = None
+            st.rerun()
     
     st.divider()
