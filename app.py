@@ -1,36 +1,14 @@
 import streamlit as st
 import json
 import random
-import segno
-import urllib.parse
 import re
-from io import BytesIO
+import urllib.parse
 
 # --- 1. PAGE CONFIG & BRANDING ---
 FAVICON = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
 st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
-
-# Custom CSS to make the bottom preview window look like a fixed "console"
-st.markdown("""
-    <style>
-    .big-font { font-family: monospace !important; }
-    .footer-window {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: #1e1e1e;
-        color: #ffffff;
-        padding: 20px;
-        height: 300px;
-        overflow-y: auto;
-        border-top: 3px solid #ff4b4b;
-        z-index: 1000;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
 # --- 2. DATA LOADING ---
 @st.cache_data
@@ -46,15 +24,14 @@ songs = load_data()
 # --- 3. SESSION STATE ---
 if 'favorites' not in st.session_state:
     st.session_state.favorites = []
-if 'selected_song' not in st.session_state:
-    st.session_state.selected_song = None
+if 'expanded_song' not in st.session_state:
+    st.session_state.expanded_song = None
 
 # --- 4. SIDEBAR FILTERS ---
 with st.sidebar:
     st.image(LOGO_URL, width=150)
-    st.header("🔍 Search Filters")
-    
-    xmas_mode = st.radio("🎄 Seasonality", ["Standard", "Christmas Only", "Show All"], index=0)
+    st.header("🔍 Filters")
+    xmas_mode = st.radio("🎄 Season", ["Standard", "Christmas Only", "All"], index=0)
     diff_filter = st.slider("Max Difficulty", 1, 5, 5)
     
     st.divider()
@@ -78,7 +55,7 @@ filtered_songs = [s for s in current_list if s['difficulty'] <= diff_filter]
 
 # --- 6. MAIN INTERFACE ---
 st.title("🎸 Moselele Database")
-query = st.text_input("Search:", placeholder="Type to find song...")
+query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...")
 
 if query:
     query_l = query.lower()
@@ -86,43 +63,46 @@ if query:
 else:
     display_list = filtered_songs[:50]
 
-# --- 7. ONE COLUMN DISPLAY ---
 st.divider()
 
+# --- 7. ONE COLUMN DISPLAY WITH INLINE EXPANSION ---
 for idx, s_data in enumerate(display_list):
-    col1, col2, col3 = st.columns([4, 1, 1])
+    # Main Song Row
+    col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+    
     col1.markdown(f"### {s_data['title']} — {s_data['artist']}")
     
-    if col2.button("👁️ View Lyrics", key=f"view_{idx}", use_container_width=True):
-        st.session_state.selected_song = s_data
-        
+    # Toggle View Logic
+    is_expanded = st.session_state.expanded_song == s_data['title']
+    if col2.button("📖 Close" if is_expanded else "👁️ View", key=f"view_{idx}", use_container_width=True):
+        st.session_state.expanded_song = s_data['title'] if not is_expanded else None
+        st.rerun()
+
+    # PDF Link
+    col3.link_button("📂 PDF", s_data['url'], use_container_width=True)
+    
+    # Favorite Button
     is_fav = s_data['title'] in st.session_state.favorites
-    if col3.button("❤️" if is_fav else "🤍", key=f"fav_{idx}", use_container_width=True):
+    if col4.button("❤️" if is_fav else "🤍", key=f"fav_{idx}", use_container_width=True):
         if is_fav: st.session_state.favorites.remove(s_data['title'])
         else: st.session_state.favorites.append(s_data['title'])
         st.rerun()
-    st.divider()
 
-# --- 8. THE BOTTOM PREVIEW WINDOW ---
-if st.session_state.selected_song:
-    song = st.session_state.selected_song
+    # THE EXPANDED WINDOW (Appears right under the result)
+    if is_expanded:
+        with st.container():
+            # Bold [Brackets] logic
+            raw_body = s_data.get('body', "No lyrics found.")
+            bolded_body = re.sub(r'(\[.*?\])', r'**\1**', raw_body)
+            
+            # Rendering in a styled box
+            st.markdown(f"""
+            <div style="background-color: #f9f9f9; padding: 25px; border-left: 5px solid #000; 
+                        font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; 
+                        color: #333; line-height: 1.4; border-radius: 5px; margin: 10px 0;">
+            {bolded_body}
+            </div>
+            """, unsafe_allow_html=True)
+            st.button("🔼 Close Lyrics", key=f"close_{idx}", on_click=lambda: st.session_state.update({"expanded_song": None}))
     
-    # Logic to Bold text in brackets [G] -> **[G]**
-    raw_body = song.get('body', "No text available.")
-    # Regex finds anything inside [] and wraps it in double asterisks
-    bolded_body = re.sub(r'(\[.*?\])', r'**\1**', raw_body)
-    
-    with st.container():
-        st.write("---")
-        st.subheader(f"📖 Now Viewing: {song['title']}")
-        
-        # We use Markdown with a monospace container to keep alignment and allow bolding
-        st.markdown(f"""
-        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; font-family: monospace; white-space: pre-wrap; line-height: 1.4;">
-        {bolded_body}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("❌ Close Preview"):
-            st.session_state.selected_song = None
-            st.rerun()
+    st.divider()
