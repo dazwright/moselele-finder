@@ -99,21 +99,30 @@ if known_chords:
     ]
 
 # --- SEARCH & DISPLAY ---
-query = st.text_input("Search song database:", placeholder="Start typing a song or artist name...")
+query = st.text_input("Search by song or artist:", placeholder="e.g. 'Beatles' or 'Jolene'...")
 
 if query:
-    titles_to_search = [s['title'] for s in filtered_songs]
-    matches = process.extract(query, titles_to_search, limit=12)
-    display_list = [m[0] for m in matches if m[1] > 55]
+    # 1. Create a searchable string for every filtered song: "Title Artist"
+    # We use a dictionary to map the "Search String" back to the "Original Song Object"
+    search_map = {f"{s['title']} {s['artist']}": s for s in filtered_songs}
+    search_strings = list(search_map.keys())
+    
+    # 2. Perform Fuzzy Match against the combined strings
+    matches = process.extract(query, search_strings, limit=15)
+    
+    # 3. Filter for matches with a confidence score > 55
+    display_list = [search_map[m[0]] for m in matches if m[1] > 55]
 else:
-    display_list = [s['title'] for s in filtered_songs[:20]]
+    # If no query, just show the first 20 songs from the filtered list
+    display_list = filtered_songs[:20]
 
 if not display_list:
-    st.warning("No songs found matching those filters.")
+    st.warning("No songs found matching those filters or search terms.")
 else:
+    # --- DISPLAY RESULTS ---
     cols = st.columns(2)
-    for idx, t in enumerate(display_list):
-        s_data = next(s for s in songs if s['title'] == t)
+    for idx, s_data in enumerate(display_list):
+        # We use s_data directly now since it's the full dictionary
         with cols[idx % 2]:
             with st.expander(f"**{s_data['title']}** — {s_data['artist']}"):
                 st.write(f"💪 **Difficulty:** {s_data['difficulty']} | 🎸 **Chords:** {', '.join(s_data.get('chords', []))}")
@@ -123,13 +132,12 @@ else:
                 
                 is_fav = s_data['title'] in st.session_state.favorites
                 label = "❤️ In Setlist" if is_fav else "🤍 Add to Setlist"
-                if b2.button(label, key=f"btn_{t}", use_container_width=True):
+                if b2.button(label, key=f"btn_{s_data['title']}_{idx}", use_container_width=True):
                     if is_fav:
                         st.session_state.favorites.remove(s_data['title'])
                     else:
                         st.session_state.favorites.append(s_data['title'])
                     st.rerun()
-
 st.divider()
 if st.button("🎲 Random Song Recommendation"):
     if filtered_songs:
