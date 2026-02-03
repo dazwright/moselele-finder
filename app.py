@@ -9,7 +9,7 @@ LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-
 
 st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
 
-# Custom CSS
+# Custom CSS for the song body
 st.markdown("""
     <style>
     .song-box {
@@ -34,7 +34,7 @@ def load_data():
     try:
         with open('song_index.json', 'r', encoding='utf-8') as f:
             return json.load(f)
-    except FileNotFoundError:
+    except Exception:
         return []
 
 songs = load_data()
@@ -51,48 +51,55 @@ if 'random_set' not in st.session_state:
 with st.sidebar:
     st.image(LOGO_URL, width=150)
     st.header("🔍 Filters")
-    xmas_mode = st.radio("🎄 Season", ["Standard", "Christmas Only", "All"], index=0)
-    diff_filter = st.slider("Max Difficulty", 1, 5, 5)
+    
+    # 4a. Inputs
+    x_mode = st.radio("🎄 Season", ["Standard", "Christmas Only", "All"], index=0)
+    d_filt = st.slider("Max Difficulty", 1, 5, 5)
     
     st.divider()
     
-    st.subheader("🎲 Randomizer")
-    
-    # 4a. Logic performed silently (no st.write/st.markdown here)
-    pool = [s for s in songs if s['difficulty'] <= diff_filter]
-    if xmas_mode == "Standard":
-        pool = [s for s in pool if "snow" not in s['url'].lower()]
-    elif xmas_mode == "Christmas Only":
-        pool = [s for s in pool if "snow" in s['url'].lower()]
+    # 4b. SILENT RANDOMIZER LOGIC
+    # We define the pool here, but we do NOT call it alone on a line.
+    active_pool = [s for s in songs if s['difficulty'] <= d_filt]
+    if x_mode == "Standard":
+        active_pool = [s for s in active_pool if "snow" not in s['url'].lower()]
+    elif x_mode == "Christmas Only":
+        active_pool = [s for s in active_pool if "snow" in s['url'].lower()]
 
-    col_r1, col_r2 = st.columns(2)
+    st.subheader("🎲 Randomizer")
+    c1, c2 = st.columns(2)
     
-    if col_r1.button("Pick 1", use_container_width=True):
-        if pool:
-            pick = random.choice(pool)
-            st.session_state.random_set = [pick['title']]
-            st.session_state.expanded_song = pick['title']
+    if c1.button("Pick 1", use_container_width=True):
+        if active_pool:
+            choice = random.choice(active_pool)
+            st.session_state.random_set = [choice['title']]
+            st.session_state.expanded_song = choice['title']
             st.balloons()
 
-    if col_r2.button("Pick 10", use_container_width=True):
+    if c2.button("Pick 10", use_container_width=True):
         st.session_state.expanded_song = None
-        if len(pool) >= 10:
-            st.session_state.random_set = [p['title'] for p in random.sample(pool, 10)]
+        if len(active_pool) >= 10:
+            selection = random.sample(active_pool, 10)
+            st.session_state.random_set = [p['title'] for p in selection]
         else:
-            st.session_state.random_set = [p['title'] for p in pool]
-        st.snow() if xmas_mode == "Christmas Only" else st.balloons()
+            st.session_state.random_set = [p['title'] for p in active_pool]
+        
+        if x_mode == "Christmas Only":
+            st.snow()
+        else:
+            st.balloons()
 
-    # 4b. Status and Actions (Only shows if a set exists)
-    if st.session_state.random_set:
-        st.success(f"Generated {len(st.session_state.random_set)} songs")
+    # 4c. ACTION BUTTONS (Only if random set exists)
+    if len(st.session_state.random_set) > 0:
+        st.success(f"Selected {len(st.session_state.random_set)} song(s)")
         
         if st.button("➕ Add all to Setlist", use_container_width=True):
-            for title in st.session_state.random_set:
-                if title not in st.session_state.favorites:
-                    st.session_state.favorites.append(title)
-            st.toast("Songs added!")
+            for t in st.session_state.random_set:
+                if t not in st.session_state.favorites:
+                    st.session_state.favorites.append(t)
+            st.toast("Added!")
 
-        if st.button("🗑️ Clear Selection", use_container_width=True):
+        if st.button("🗑️ Clear Random", use_container_width=True):
             st.session_state.random_set = []
             st.session_state.expanded_song = None
             st.rerun()
@@ -102,69 +109,68 @@ with st.sidebar:
     if not st.session_state.favorites:
         st.info("Setlist is empty.")
     else:
-        # We loop and display favorites without printing the list object itself
-        for fav in st.session_state.favorites:
-            c1, c2 = st.columns([4, 1])
-            c1.caption(fav)
-            if c2.button("🗑️", key=f"del_{fav}"):
-                st.session_state.favorites.remove(fav)
+        for f_title in st.session_state.favorites:
+            fc1, fc2 = st.columns([4, 1])
+            fc1.caption(f_title)
+            if fc2.button("🗑️", key=f"remove_{f_title}"):
+                st.session_state.favorites.remove(f_title)
                 st.rerun()
 
-# --- 5. DATA FILTERING ---
-# We keep this outside the sidebar to ensure the main window updates correctly
-if xmas_mode == "Standard":
-    current_list = [s for s in songs if "snow" not in s['url'].lower() and "snow" not in s['title'].lower()]
-elif xmas_mode == "Christmas Only":
-    current_list = [s for s in songs if "snow" in s['url'].lower() or "snow" in s['title'].lower()]
+# --- 5. MAIN WINDOW DISPLAY LOGIC ---
+# Filtering the list for the main search
+if x_mode == "Standard":
+    main_pool = [s for s in songs if "snow" not in s['url'].lower() and "snow" not in s['title'].lower()]
+elif x_mode == "Christmas Only":
+    main_pool = [s for s in songs if "snow" in s['url'].lower() or "snow" in s['title'].lower()]
 else:
-    current_list = songs
+    main_pool = songs
 
-filtered_songs = [s for s in current_list if s['difficulty'] <= diff_filter]
+final_filtered = [s for s in main_pool if s['difficulty'] <= d_filt]
 
-# --- 6. MAIN INTERFACE ---
 st.title("🎸 Moselele Database")
-search_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...", key="main_search_input")
+s_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...", key="main_search_box")
 
-if search_query:
-    q = search_query.lower()
-    display_list = [s for s in filtered_songs if q in s['title'].lower() or q in s['artist'].lower() or q in s.get('body', '').lower()]
+if s_query:
+    sq = s_query.lower()
+    main_list = [s for s in final_filtered if sq in s['title'].lower() or sq in s['artist'].lower() or sq in s.get('body', '').lower()]
 else:
-    display_list = filtered_songs
+    main_list = final_filtered
 
-# Pin Random Songs to Top
+# Priority: Push Random Set to Top
 if st.session_state.random_set:
-    featured = [s for s in songs if s['title'] in st.session_state.random_set]
-    display_list = [s for s in display_list if s['title'] not in st.session_state.random_set]
-    display_list = featured + display_list
+    featured_songs = [s for s in songs if s['title'] in st.session_state.random_set]
+    main_list = [s for s in main_list if s['title'] not in st.session_state.random_set]
+    main_list = featured_songs + main_list
 
-display_list = display_list[:50]
+# Show top 50
+main_list = main_list[:50]
 
 st.divider()
 
-# --- 7. DISPLAY LOOP ---
-for idx, s_data in enumerate(display_list):
-    is_random = s_data['title'] in st.session_state.random_set
-    col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+# --- 6. RENDER SONGS ---
+for i, song_data in enumerate(main_list):
+    is_r = song_data['title'] in st.session_state.random_set
+    sc1, sc2, sc3, sc4 = st.columns([4, 1, 1, 1])
     
-    title_label = f"🎲 FEATURED: {s_data['title']}" if is_random else s_data['title']
-    col1.markdown(f"### {title_label} — {s_data['artist']}")
+    display_title = f"🎲 FEATURED: {song_data['title']}" if is_r else song_data['title']
+    sc1.markdown(f"### {display_title} — {song_data['artist']}")
     
-    is_expanded = st.session_state.expanded_song == s_data['title']
-    if col2.button("📖 Close" if is_expanded else "👁️ View", key=f"view_{idx}", use_container_width=True):
-        st.session_state.expanded_song = s_data['title'] if not is_expanded else None
+    is_exp = st.session_state.expanded_song == song_data['title']
+    if sc2.button("📖 Close" if is_exp else "👁️ View", key=f"v_{i}", use_container_width=True):
+        st.session_state.expanded_song = song_data['title'] if not is_exp else None
         st.rerun()
 
-    col3.link_button("📂 PDF", s_data['url'], use_container_width=True)
+    sc3.link_button("📂 PDF", song_data['url'], use_container_width=True)
     
-    is_fav = s_data['title'] in st.session_state.favorites
-    if col4.button("❤️" if is_fav else "🤍", key=f"fav_{idx}", use_container_width=True):
-        if is_fav: st.session_state.favorites.remove(s_data['title'])
-        else: st.session_state.favorites.append(s_data['title'])
+    is_f = song_data['title'] in st.session_state.favorites
+    if sc4.button("❤️" if is_f else "🤍", key=f"f_{i}", use_container_width=True):
+        if is_f: st.session_state.favorites.remove(song_data['title'])
+        else: st.session_state.favorites.append(song_data['title'])
         st.rerun()
 
-    if is_expanded:
-        raw_body = s_data.get('body', "No lyrics found.")
-        bolded_body = re.sub(r'(\[.*?\])', r'<b>\1</b>', raw_body)
-        st.markdown(f'<div class="song-box">{bolded_body}</div>', unsafe_allow_html=True)
+    if is_exp:
+        b_text = song_data.get('body', "No text.")
+        b_text_bold = re.sub(r'(\[.*?\])', r'<b>\1</b>', b_text)
+        st.markdown(f'<div class="song-box">{b_text_bold}</div>', unsafe_allow_html=True)
     
     st.divider()
