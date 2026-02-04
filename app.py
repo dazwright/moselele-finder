@@ -7,26 +7,27 @@ import re
 FAVICON = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
-st.set_page_config(page_title="Moselele Database", page_icon=FAVICON, layout="wide")
+st.set_page_config(page_title="Moselele", page_icon=FAVICON, layout="wide")
 
-# Custom CSS for the song body
+# Custom CSS
 st.markdown("""
     <style>
+    .song-title { font-size: 1.05rem !important; margin-bottom: 0px; font-weight: bold; }
+    .song-meta { font-size: 0.85rem; color: #555; margin-top: -4px; }
     .song-box {
-        background-color: #f1f1f1;
+        background-color: #f8f9fa;
         color: #111;
-        padding: 25px;
-        border-radius: 8px;
-        border-left: 6px solid #333;
+        padding: 20px;
+        border-radius: 5px;
+        border-left: 5px solid #000;
         font-family: 'Courier New', Courier, monospace;
         white-space: pre-wrap;
-        font-size: 16px;
-        line-height: 1.6;
-        margin-bottom: 20px;
+        font-size: 15px;
+        line-height: 1.5;
     }
-    .song-box b { color: #d32f2f; font-weight: bold; } 
+    .song-box b { color: #cc0000; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- 2. DATA LOADING ---
 @st.cache_data
@@ -34,143 +35,100 @@ def load_data():
     try:
         with open('song_index.json', 'r', encoding='utf-8') as f:
             return json.load(f)
-    except Exception:
+    except:
         return []
 
-songs = load_data()
+all_songs = load_data()
 
 # --- 3. SESSION STATE ---
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = []
-if 'expanded_song' not in st.session_state:
-    st.session_state.expanded_song = None
-if 'random_set' not in st.session_state:
-    st.session_state.random_set = []
+if 'favorites' not in st.session_state: st.session_state.favorites = []
+if 'expanded' not in st.session_state: st.session_state.expanded = None
+if 'initial_shuffle' not in st.session_state:
+    sampled = random.sample(all_songs, min(50, len(all_songs)))
+    st.session_state.initial_shuffle = sorted(sampled, key=lambda x: x.get('difficulty', 3))
 
 # --- 4. SIDEBAR & FILTERS ---
 with st.sidebar:
-    st.image(LOGO_URL, width=150)
+    st.image(LOGO_URL, width=120)
     st.header("🔍 Filters")
     
-    # 4a. Inputs
-    x_mode = st.radio("🎄 Season", ["Standard", "Christmas Only", "All"], index=0)
-    d_filt = st.slider("Max Difficulty", 1, 5, 5)
+    x_mode = st.radio("🎄 Mode", ["Standard", "Christmas", "All"])
+    d_max = st.slider("Max Difficulty", 1, 5, 5)
+    
+    # NEW: Book Filter
+    # Get unique book numbers, sorted numerically
+    unique_books = sorted(list(set([str(s.get('book', 'N/A')) for s in all_songs if s.get('book') != "N/A"])), key=lambda x: int(x))
+    book_choice = st.selectbox("Select Book", ["All Books"] + unique_books)
     
     st.divider()
-    
-    # 4b. SILENT RANDOMIZER LOGIC
-    # We define the pool here, but we do NOT call it alone on a line.
-    active_pool = [s for s in songs if s['difficulty'] <= d_filt]
-    if x_mode == "Standard":
-        active_pool = [s for s in active_pool if "snow" not in s['url'].lower()]
-    elif x_mode == "Christmas Only":
-        active_pool = [s for s in active_pool if "snow" in s['url'].lower()]
-
-    st.subheader("🎲 Randomizer")
-    c1, c2 = st.columns(2)
-    
-    if c1.button("Pick 1", use_container_width=True):
-        if active_pool:
-            choice = random.choice(active_pool)
-            st.session_state.random_set = [choice['title']]
-            st.session_state.expanded_song = choice['title']
-            st.balloons()
-
-    if c2.button("Pick 10", use_container_width=True):
-        st.session_state.expanded_song = None
-        if len(active_pool) >= 10:
-            selection = random.sample(active_pool, 10)
-            st.session_state.random_set = [p['title'] for p in selection]
-        else:
-            st.session_state.random_set = [p['title'] for p in active_pool]
-        
-        if x_mode == "Christmas Only":
-            st.snow()
-        else:
-            st.balloons()
-
-    # 4c. ACTION BUTTONS (Only if random set exists)
-    if len(st.session_state.random_set) > 0:
-        st.success(f"Selected {len(st.session_state.random_set)} song(s)")
-        
-        if st.button("➕ Add all to Setlist", use_container_width=True):
-            for t in st.session_state.random_set:
-                if t not in st.session_state.favorites:
-                    st.session_state.favorites.append(t)
-            st.toast("Added!")
-
-        if st.button("🗑️ Clear Random", use_container_width=True):
-            st.session_state.random_set = []
-            st.session_state.expanded_song = None
+    st.subheader("⭐ Setlist")
+    for f_title in st.session_state.favorites:
+        fc1, fc2 = st.columns([4, 1])
+        fc1.caption(f_title)
+        if fc2.button("🗑️", key=f"remove_{f_title}"):
+            st.session_state.favorites.remove(f_title)
             st.rerun()
 
-    st.divider()
-    st.subheader("⭐ My Setlist")
-    if not st.session_state.favorites:
-        st.info("Setlist is empty.")
-    else:
-        for f_title in st.session_state.favorites:
-            fc1, fc2 = st.columns([4, 1])
-            fc1.caption(f_title)
-            if fc2.button("🗑️", key=f"remove_{f_title}"):
-                st.session_state.favorites.remove(f_title)
-                st.rerun()
+# --- 5. MAIN FILTERING & SORTING LOGIC ---
+# Base filter for Difficulty and Season
+pool = [s for s in all_songs if s.get('difficulty', 3) <= d_max]
+if x_mode == "Standard": 
+    pool = [s for s in pool if "snow" not in s['url'].lower()]
+elif x_mode == "Christmas": 
+    pool = [s for s in pool if "snow" in s['url'].lower()]
 
-# --- 5. MAIN WINDOW DISPLAY LOGIC ---
-# Filtering the list for the main search
-if x_mode == "Standard":
-    main_pool = [s for s in songs if "snow" not in s['url'].lower() and "snow" not in s['title'].lower()]
-elif x_mode == "Christmas Only":
-    main_pool = [s for s in songs if "snow" in s['url'].lower() or "snow" in s['title'].lower()]
+# Apply Book Filter and determine Sort Key
+if book_choice != "All Books":
+    pool = [s for s in pool if str(s.get('book')) == book_choice]
+    # SORT BY PAGE NUMBER (Natural sort: Page 2 before Page 10)
+    pool = sorted(pool, key=lambda x: int(x.get('page', 0)) if str(x.get('page')).isdigit() else 999)
 else:
-    main_pool = songs
+    # SORT BY DIFFICULTY (Default)
+    pool = sorted(pool, key=lambda x: x.get('difficulty', 3))
 
-final_filtered = [s for s in main_pool if s['difficulty'] <= d_filt]
-
+# Search Query logic
 st.title("🎸 Moselele Database")
-s_query = st.text_input("Search:", placeholder="Search titles, artists, or lyrics...", key="main_search_box")
+query = st.text_input("Search:", placeholder="Type song, artist, or lyric...")
 
-if s_query:
-    sq = s_query.lower()
-    main_list = [s for s in final_filtered if sq in s['title'].lower() or sq in s['artist'].lower() or sq in s.get('body', '').lower()]
+if query:
+    q = query.lower()
+    display_list = [s for s in pool if q in s['title'].lower() or q in s['artist'].lower() or q in s.get('body','').lower()]
+    # If searching, we maintain the sort order defined above (Page if Book selected, else Difficulty)
 else:
-    main_list = final_filtered
-
-# Priority: Push Random Set to Top
-if st.session_state.random_set:
-    featured_songs = [s for s in songs if s['title'] in st.session_state.random_set]
-    main_list = [s for s in main_list if s['title'] not in st.session_state.random_set]
-    main_list = featured_songs + main_list
-
-# Show top 50
-main_list = main_list[:50]
+    # On load / No search
+    if book_choice != "All Books":
+        display_list = pool[:50]
+    else:
+        # Respect the initial 50 random songs but filter them
+        display_list = [s for s in st.session_state.initial_shuffle if s in pool][:50]
 
 st.divider()
 
-# --- 6. RENDER SONGS ---
-for i, song_data in enumerate(main_list):
-    is_r = song_data['title'] in st.session_state.random_set
-    sc1, sc2, sc3, sc4 = st.columns([4, 1, 1, 1])
+# --- 6. RENDER LIST ---
+for i, s in enumerate(display_list):
+    c1, c2, c3, c4 = st.columns([5, 1, 1, 1])
     
-    display_title = f"🎲 FEATURED: {song_data['title']}" if is_r else song_data['title']
-    sc1.markdown(f"### {display_title} — {song_data['artist']}")
+    with c1:
+        st.markdown(f"<div class='song-title'>{s['title']} — {s['artist']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='song-meta'>Difficulty: {s['difficulty']} | Book: {s['book']} | Page: {s['page']}</div>", unsafe_allow_html=True)
     
-    is_exp = st.session_state.expanded_song == song_data['title']
-    if sc2.button("📖 Close" if is_exp else "👁️ View", key=f"v_{i}", use_container_width=True):
-        st.session_state.expanded_song = song_data['title'] if not is_exp else None
+    is_exp = st.session_state.expanded == s['title']
+    if c2.button("👁️ View" if not is_exp else "📖 Close", key=f"v_{i}", use_container_width=True):
+        st.session_state.expanded = s['title'] if not is_exp else None
         st.rerun()
-
-    sc3.link_button("📂 PDF", song_data['url'], use_container_width=True)
     
-    is_f = song_data['title'] in st.session_state.favorites
-    if sc4.button("❤️" if is_f else "🤍", key=f"f_{i}", use_container_width=True):
-        if is_f: st.session_state.favorites.remove(song_data['title'])
-        else: st.session_state.favorites.append(song_data['title'])
+    c3.link_button("📂 PDF", s['url'], use_container_width=True)
+    
+    is_f = s['title'] in st.session_state.favorites
+    if c4.button("❤️" if is_f else "🤍", key=f"f_{i}", use_container_width=True):
+        if is_f: st.session_state.favorites.remove(s['title'])
+        else: st.session_state.favorites.append(s['title'])
         st.rerun()
 
     if is_exp:
-        b_text = song_data.get('body', "No text.")
-        b_text_bold = re.sub(r'(\[.*?\])', r'<b>\1</b>', b_text)
-        st.markdown(f'<div class="song-box">{b_text_bold}</div>', unsafe_allow_html=True)
+        body = s.get('body', "No lyrics available.")
+        # Bold [Chords]
+        bolded = re.sub(r'(\[.*?\])', r'<b>\1</b>', body)
+        st.markdown(f"<div class='song-box'>{bolded}</div>", unsafe_allow_html=True)
     
     st.divider()
