@@ -3,19 +3,13 @@ import pandas as pd
 import os
 import random
 import re
-from streamlit_lottie import st_lottie
-import requests
 
 # --- CONFIGURATION ---
 CSV_FILE = "moselele_songs_cleaned.csv"
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
-DICE_LOTTIE_URL = "https://assets10.lottiefiles.com/packages/lf20_m6cu96.json"
-
-def load_lottieurl(url: str):
-    r = requests.get(url)
-    if r.status_code != 200: return None
-    return r.json()
+# A standard web URL for a spinning dice GIF
+DICE_GIF_URL = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJueXZueXZueXZueXZueXZueXZueXZueXZueXZueXZueXZueXZueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/L2dq3920958y5K0zIn/giphy.gif"
 
 def clean_difficulty(val):
     try:
@@ -58,7 +52,9 @@ st.markdown("""
         line-height: 1.6;
         color: #31333F; 
     }
-    .stExpander { border: 1px solid #e6e6e6; margin-bottom: 10px; }
+    .stExpander { border: 1px solid #e6e6e6; margin-bottom: 0px; }
+    /* Align buttons vertically with the expander */
+    .stButton button { margin-top: 5px; width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -118,17 +114,16 @@ def main():
     elif not any([search_query, chord_query, book_filter, seasonal]) and not st.session_state.random_active:
         filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5')
 
-    # Dice Animation
+    # Dice Animation (Using standard Image call for GIF)
     if st.session_state.random_active and (pick_1 or pick_10):
-        lottie_dice = load_lottieurl(DICE_LOTTIE_URL)
-        st_lottie(lottie_dice, height=150, key="dice")
+        st.image(DICE_GIF_URL, width=100)
 
     # --- PLAYLIST SIDEBAR ---
     st.sidebar.divider()
     st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
     for p_song in st.session_state.playlist:
         st.sidebar.caption(f"• {p_song}")
-    if st.sidebar.button("Clear Playlist"):
+    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
         st.session_state.playlist = []
         st.rerun()
 
@@ -141,25 +136,32 @@ def main():
         diff_display = f"Difficulty: {diff_score}/5" if diff_score > 0 else "Difficulty: NA"
         header_text = f"{song['Title']} - {song['Artist']} | {diff_display} | Book {song['Book']}, Page {song['Page']}"
         
-        # Display Row (Title & Direct Buttons)
-        col_main, col_btn1, col_btn2 = st.columns([6, 1.5, 1.5])
+        # Display Row
+        col_main, col_btn1, col_btn2 = st.columns([7, 1.2, 1.2])
         
         with col_main:
-            expander = st.expander(header_text)
+            with st.expander(header_text):
+                st.markdown(f"**Chords:** `{song['Chords']}`")
+                if song['Body']:
+                    st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
+                else:
+                    st.warning("Lyrics could not be displayed.")
+        
         with col_btn1:
-            if st.button("➕ Playlist", key=f"plist_{song['Title']}"):
+            if st.button("➕ List", key=f"plist_{song['Title']}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
                     st.toast(f"Added {song['Title']}")
-        with col_btn2:
-            st.markdown(f'[@Download PDF]({song["URL"]})', unsafe_allow_html=True)
         
-        with expander:
-            st.markdown(f"**Chords:** `{song['Chords']}`")
-            if song['Body']:
-                st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
-            else:
-                st.warning("Lyrics could not be displayed.")
+        with col_btn2:
+            # Styled as a link that looks like a button
+            st.markdown(f"""
+                <a href="{song['URL']}" target="_blank">
+                    <button style="width:100%; height:38px; border-radius:8px; border:1px solid #ccc; background-color:white; cursor:pointer; margin-top:5px;">
+                        📄 PDF
+                    </button>
+                </a>
+            """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
