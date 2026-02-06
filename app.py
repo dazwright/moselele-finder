@@ -23,22 +23,24 @@ def clean_difficulty(val):
 
 def load_data():
     if not os.path.exists(CSV_FILE):
-        st.error(f"❌ File not found: {CSV_FILE}")
         return pd.DataFrame()
-    df = pd.read_csv(CSV_FILE)
-    df['Body'] = df['Body'].fillna("").astype(str)
-    df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
-    df['Chords'] = df['Chords'].fillna("").astype(str)
-    df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
-    df['Book'] = df['Book'].fillna("Other").astype(str)
-    df['Page'] = df['Page'].fillna("NA").astype(str)
-    df['Difficulty_5'] = df['Difficulty'].apply(clean_difficulty)
-    return df
+    try:
+        df = pd.read_csv(CSV_FILE)
+        df['Body'] = df['Body'].fillna("").astype(str)
+        df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
+        df['Chords'] = df['Chords'].fillna("").astype(str)
+        df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
+        df['Book'] = df['Book'].fillna("Other").astype(str)
+        df['Page'] = df['Page'].fillna("NA").astype(str)
+        df['Difficulty_5'] = df['Difficulty'].apply(clean_difficulty)
+        return df
+    except Exception as e:
+        st.error(f"Error loading CSV: {e}")
+        return pd.DataFrame()
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Moselele song database", page_icon=FAVICON_URL, layout="wide")
 
-# Custom CSS for spacing and button alignment
 st.markdown("""
     <style>
     .lyrics-box {
@@ -52,17 +54,12 @@ st.markdown("""
         color: #31333F; 
     }
     .stExpander { border: 1px solid #e6e6e6; margin-bottom: 0px; }
-    
-    /* Randomiser Button Spacing (Sidebar) */
     div[data-testid="stVerticalBlock"] > div:has(button[kind="secondary"]) button {
         padding: 10px 5px !important;
         height: auto !important;
         min-height: 45px;
     }
-
-    /* Result Row Buttons */
     .stButton button { margin-top: 5px; width: 100%; height: 40px; }
-    
     .pdf-btn {
         display: inline-flex;
         align-items: center;
@@ -82,7 +79,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE ---
 if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
 
@@ -92,14 +88,16 @@ def main():
     with col_title: st.title("Moselele song database")
 
     df = load_data()
-    if df.empty: return
+    if df.empty:
+        st.warning("No data found. Check if 'moselele_songs_cleaned.csv' is in the folder.")
+        return
 
     # --- SIDEBAR ---
     st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
     
-    # Removed chord_query box here
-    search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "").lower()
+    # Global Search with Autofocus
+    search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
 
@@ -111,3 +109,74 @@ def main():
     
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
+        st.rerun()
+
+    # --- FILTERING LOGIC ---
+    filtered_df = df.copy()
+    
+    # Apply standard filters
+    if seasonal:
+        filtered_df = filtered_df[filtered_df['Book'].str.contains('Christmas|Winter|Snow', case=False)]
+    
+    if search_query:
+        filtered_df = filtered_df[
+            (filtered_df['Title'].str.lower().str.contains(search_query)) |
+            (filtered_df['Artist'].str.lower().str.contains(search_query)) |
+            (filtered_df['Body'].str.lower().str.contains(search_query))
+        ]
+    
+    if book_filter:
+        filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
+
+    # --- RANDOM/DEFAULT LOGIC ---
+    # Trigger random state
+    if pick_1 or pick_10:
+        st.session_state.random_active = True
+        count = 1 if pick_1 else 10
+        filtered_df = filtered_df.sample(n=min(count, len(filtered_df)))
+    
+    # If no manual filters are set and random is not active, show the 50 random default
+    elif not any([search_query, book_filter, seasonal]) and not st.session_state.random_active:
+        filtered_df = df.sample(n=min(50, len(df))).sort_values('Difficulty_5')
+
+    # --- PLAYLIST SIDEBAR ---
+    st.sidebar.divider()
+    st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
+    for p_song in st.session_state.playlist:
+        st.sidebar.caption(f"• {p_song}")
+    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
+        st.session_state.playlist = []
+        st.rerun()
+
+    # --- MAIN DISPLAY ---
+    st.write(f"Displaying **{len(filtered_df)}** songs")
+
+    for _, song in filtered_df.iterrows():
+        song_id = f"{song['Title']} ({song['Artist']})"
+        diff_score = int(song['Difficulty_5'])
+        diff_text = f"{diff_score}/5" if diff_score > 0 else "NA"
+        
+        prefix = "🎲 " if st.session_state.random_active else ""
+        header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {diff_text} | Book {song['Book']}, Page {song['Page']}"
+        
+        col_exp, col_p, col_pdf = st.columns([7.5, 1.2, 1.2])
+        
+        with col_exp:
+            with st.expander(header):
+                st.markdown(f"**Chords:** `{song['Chords']}`")
+                if song['Body']:
+                    st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("Lyrics not available.")
+        
+        with col_p:
+            if st.button("➕ List", key=f"p_{song['Title']}_{_}"):
+                if song_id not in st.session_state.playlist:
+                    st.session_state.playlist.append(song_id)
+                    st.toast(f"Added {song['Title']}")
+        
+        with col_pdf:
+            st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
