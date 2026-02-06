@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 import os
-import random
 import re
 
 # --- CONFIGURATION ---
-CSV_FILE = "moselele_songs_cleaned.csv" # Pointing to your most recent clean file
+POSSIBLE_SONG_FILES = ["moselele_songs_final_clean.csv", "moselele_songs_cleaned.csv", "moselele_songs.csv"]
 CHORDS_LIB_FILE = "chords.csv"
+
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
@@ -14,10 +14,15 @@ LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-
 def load_chord_library():
     if not os.path.exists(CHORDS_LIB_FILE):
         return pd.DataFrame()
-    df = pd.read_csv(CHORDS_LIB_FILE)
-    # Ensure column names are clean
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    try:
+        df = pd.read_csv(CHORDS_LIB_FILE)
+        df.columns = [c.strip() for c in df.columns]
+        # Clean the Chord Name column to ensure matching works
+        if 'Chord Name' in df.columns:
+            df['Chord Name'] = df['Chord Name'].astype(str).str.strip()
+        return df
+    except:
+        return pd.DataFrame()
 
 def clean_difficulty(val):
     try:
@@ -32,15 +37,24 @@ def clean_difficulty(val):
     return 0
 
 def load_data():
-    if not os.path.exists(CSV_FILE):
+    target_file = None
+    for f in POSSIBLE_SONG_FILES:
+        if os.path.exists(f):
+            target_file = f
+            break
+            
+    if not target_file:
         return pd.DataFrame()
+
     try:
-        df = pd.read_csv(CSV_FILE)
-        df['Body'] = df['Body'].fillna("").astype(str)
-        df['Chords'] = df['Chords'].fillna("").astype(str)
-        df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
-        df['Book'] = df['Book'].fillna("Other").astype(str)
-        df['Page'] = df['Page'].fillna("NA").astype(str)
+        df = pd.read_csv(target_file)
+        # Force all columns to strings and fill NAs to prevent rendering crashes
+        for col in ['Body', 'Chords', 'Title', 'Artist', 'Book', 'Page', 'URL']:
+            if col in df.columns:
+                df[col] = df[col].fillna("").astype(str)
+            else:
+                df[col] = ""
+        
         df['Difficulty_5'] = df['Difficulty'].apply(clean_difficulty)
         return df
     except Exception as e:
@@ -77,20 +91,6 @@ st.markdown("""
         font-size: 14px;
         margin-top: 5px;
     }
-    .chord-diagram-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 20px;
-        background: #f8f9fa;
-        padding: 10px;
-        border-radius: 5px;
-    }
-    .chord-item {
-        text-align: center;
-        font-size: 12px;
-        font-weight: bold;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -106,7 +106,7 @@ def main():
     chord_lib = load_chord_library()
     
     if df.empty:
-        st.warning("No data found. Check if your CSV files are in the folder.")
+        st.warning(f"⚠️ Song database not found in: `{os.getcwd()}`")
         return
 
     # --- SIDEBAR ---
@@ -114,13 +114,20 @@ def main():
     st.sidebar.header("Search & Filter")
     search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
-    book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
+    
+    book_options = sorted([b for b in df['Book'].unique() if b != ""])
+    book_filter = st.sidebar.multiselect("Books", options=book_options)
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
     c_r1, c_r2 = st.sidebar.columns(2)
-    pick_1 = c_r1.button("Pick 1 Random")
-    pick_10 = c_r2.button("Pick 10 Random")
+    if c_r1.button("Pick 1 Random"):
+        st.session_state.random_active = True
+        st.session_state.random_count = 1
+    if c_r2.button("Pick 10 Random"):
+        st.session_state.random_active = True
+        st.session_state.random_count = 10
+    
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
         st.rerun()
@@ -138,26 +145,16 @@ def main():
     if book_filter:
         filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
 
-    if pick_1 or pick_10:
-        st.session_state.random_active = True
-        count = 1 if pick_1 else 10
+    if st.session_state.random_active:
+        count = getattr(st.session_state, 'random_count', 1)
         filtered_df = filtered_df.sample(n=min(count, len(filtered_df)))
-    elif not any([search_query, book_filter, seasonal]) and not st.session_state.random_active:
+    elif not any([search_query, book_filter, seasonal]):
         filtered_df = df.sample(n=min(50, len(df))).sort_values('Difficulty_5')
-
-    # --- PLAYLIST SIDEBAR ---
-    st.sidebar.divider()
-    st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
-    for p_song in st.session_state.playlist:
-        st.sidebar.caption(f"• {p_song}")
-    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
-        st.session_state.playlist = []
-        st.rerun()
 
     # --- MAIN DISPLAY ---
     st.write(f"Displaying **{len(filtered_df)}** songs")
 
-    for idx, song in filtered_df.iterrows():
+    for i, (idx, song) in enumerate(filtered_df.iterrows()):
         song_id = f"{song['Title']} ({song['Artist']})"
         diff_score = int(song['Difficulty_5'])
         diff_text = f"{diff_score}/5" if diff_score > 0 else "NA"
@@ -168,36 +165,44 @@ def main():
         
         with col_exp:
             with st.expander(header):
-                st.markdown(f"**Chords:** `{song['Chords']}`")
+                st.write(f"**Chords:** {song['Chords']}")
                 
                 # --- CHORD DIAGRAM SECTION ---
                 if not chord_lib.empty and song['Chords']:
-                    # Split the song's chords into a list
-                    song_chords = [c.strip() for c in song['Chords'].split(',')]
-                    
-                    # Create columns for diagrams
-                    chord_cols = st.columns(min(len(song_chords), 8)) # Max 8 per row
-                    for i, chord in enumerate(song_chords):
-                        # Match with library (case insensitive)
-                        match = chord_lib[chord_lib['Chord Name'].str.lower() == chord.lower()]
-                        if not match.empty:
-                            img_url = match.iloc[0]['URL']
-                            with chord_cols[i % 8]:
-                                st.image(img_url, width=80, caption=chord)
+                    song_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
+                    if song_chords:
+                        # Draw diagrams in rows of 6
+                        n_chords = len(song_chords)
+                        cols = st.columns(min(n_chords, 6))
+                        for c_idx, chord_name in enumerate(song_chords):
+                            match = chord_lib[chord_lib['Chord Name'].str.lower() == chord_name.lower()]
+                            if not match.empty:
+                                img_url = str(match.iloc[0]['URL'])
+                                with cols[c_idx % 6]:
+                                    st.image(img_url, width=70, caption=chord_name)
                 
                 if song['Body']:
                     st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
-                else:
-                    st.info("Lyrics not available.")
         
         with col_p:
-            if st.button("➕ List", key=f"p_{idx}"):
+            if st.button("➕ List", key=f"plist_btn_{idx}_{i}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
                     st.toast(f"Added {song['Title']}")
         
         with col_pdf:
-            st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
+            if song['URL']:
+                st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
+
+    # --- PLAYLIST SIDEBAR (Bottom) ---
+    if st.session_state.playlist:
+        st.sidebar.divider()
+        st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
+        for p_song in st.session_state.playlist:
+            st.sidebar.caption(f"• {p_song}")
+        if st.sidebar.button("Clear Playlist"):
+            st.session_state.playlist = []
+            st.rerun()
 
 if __name__ == "__main__":
     main()
