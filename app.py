@@ -159,4 +159,40 @@ def main():
     st.sidebar.divider()
     st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
     for p_song in st.session_state.playlist:
-        st.sidebar.caption(f"
+        st.sidebar.caption(f"• {p_song}")
+    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
+        st.session_state.playlist = []
+        st.rerun()
+
+    # --- MAIN DISPLAY ---
+    st.write(f"Displaying **{len(filtered_df)}** songs")
+
+    for idx, song in filtered_df.iterrows():
+        song_id = f"{song['Title']} ({song['Artist']})"
+        diff_score = int(song['Difficulty_5'])
+        diff_text = f"{diff_score}/5" if diff_score > 0 else "NA"
+        
+        prefix = "🎲 " if st.session_state.random_active else ""
+        header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {diff_text} | Book {song['Book']}, Page {song['Page']}"
+        
+        col_exp, col_p, col_pdf = st.columns([7.5, 1.2, 1.2])
+        
+        with col_exp:
+            with st.expander(header):
+                st.markdown(f"**Chords:** `{song['Chords']}`")
+                if song['Body']:
+                    st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("Lyrics not available.")
+        
+        with col_p:
+            if st.button("➕ List", key=f"p_{idx}"):
+                if song_id not in st.session_state.playlist:
+                    st.session_state.playlist.append(song_id)
+                    st.toast(f"Added {song['Title']}")
+        
+        with col_pdf:
+            st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
