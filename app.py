@@ -28,18 +28,27 @@ def load_data():
     if not target_file: return pd.DataFrame()
     try:
         df = pd.read_csv(target_file)
-        for col in ['Body', 'Chords', 'Title', 'Artist', 'Book', 'Page', 'URL']:
+        for col in ['Body', 'Chords', 'Title', 'Artist', 'Book', 'Page', 'URL', 'Difficulty']:
             if col in df.columns: df[col] = df[col].fillna("").astype(str)
-        df['Difficulty_5'] = df['Difficulty'].apply(lambda x: min(5, round(float(re.sub(r'\D', '', str(x)))/2)) if re.sub(r'\D', '', str(x)) else 0)
+        
+        def parse_diff(x):
+            try:
+                nums = re.findall(r'\d+', str(x))
+                return int(nums[0]) if nums else 0
+            except: return 0
+            
+        df['Difficulty_5'] = df['Difficulty'].apply(parse_diff)
         return df
     except: return pd.DataFrame()
 
+# --- PAGE CONFIG ---
 st.set_page_config(
     page_title="Moselele song database", 
     page_icon=FAVICON_PATH if os.path.exists(FAVICON_PATH) else "🎸", 
     layout="wide"
 )
 
+# Custom Styles
 st.markdown("""
     <style>
     .lyrics-box {
@@ -51,6 +60,13 @@ st.markdown("""
     .action-btn {
         text-decoration: none; color: #31333F !important; border: 1px solid #ccc;
         padding: 5px 15px; border-radius: 5px; font-size: 0.85rem; background-color: #fff;
+        display: inline-block;
+    }
+    .chord-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -59,10 +75,11 @@ if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
 
 def main():
-    col_logo, col_title = st.columns([1, 5])
-    with col_logo:
+    # Logo and Title
+    c_l, c_t = st.columns([1, 5])
+    with c_l:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=120)
-    with col_title: st.title("Moselele song database")
+    with c_t: st.title("Moselele song database")
 
     df = load_data()
     chord_lib = load_chord_library()
@@ -79,10 +96,10 @@ def main():
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
-    c_r1, c_r2 = st.sidebar.columns(2)
-    if c_r1.button("Pick 1"):
+    r1, r2 = st.sidebar.columns(2)
+    if r1.button("Pick 1"):
         st.session_state.random_active, st.session_state.rcount = True, 1
-    if c_r2.button("Pick 10"):
+    if r2.button("Pick 10"):
         st.session_state.random_active, st.session_state.rcount = True, 10
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
@@ -100,46 +117,53 @@ def main():
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(getattr(st.session_state, 'rcount', 1), len(f_df)))
     elif not any([search_query, book_filter, seasonal]):
-        f_df = f_df.sample(n=min(50, len(f_df))).sort_values('Difficulty_5')
+        f_df = f_df.sample(n=min(50, len(f_df)))
 
-    # --- MAIN DISPLAY ---
     st.write(f"Displaying **{len(f_df)}** songs")
 
+    # --- MAIN LOOP ---
     for idx, song in f_df.iterrows():
         song_id = f"{song['Title']} ({song['Artist']})"
-        d_text = f"{int(song['Difficulty_5'])}/5" if song['Difficulty_5'] > 0 else "NA"
         prefix = "🎲 " if st.session_state.random_active else ""
-        header = f"{prefix}{song['Title']} - {song['Artist']} | {d_text} | Book {song['Book']}, Page {song['Page']}"
+        header = f"{prefix}{song['Title']} - {song['Artist']} | Book {song['Book']}, Page {song['Page']}"
         
+        # 1. THE EXPANDER
         with st.expander(header):
-            # CHORD IMAGES: Re-implemented to avoid DeltaGenerator error
+            # Safe Chord Image Logic (Avoiding nested st.columns)
             if not chord_lib.empty and song['Chords'].strip():
                 s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
-                # We use a static column count to keep the engine happy
-                chord_cols = st.columns(min(len(s_chords), 7))
-                for i, c_name in enumerate(s_chords):
+                
+                # Fetch only valid local paths
+                valid_imgs = []
+                valid_caps = []
+                for c_name in s_chords:
                     match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
                     if not match.empty:
-                        img_full_path = os.path.join(CHORD_IMG_DIR, str(match.iloc[0]['URL']))
-                        if os.path.exists(img_full_path):
-                            with chord_cols[i % 7]:
-                                st.image(img_full_path, width=70, caption=c_name)
+                        img_path = os.path.join(CHORD_IMG_DIR, str(match.iloc[0]['URL']))
+                        if os.path.exists(img_path):
+                            valid_imgs.append(img_path)
+                            valid_caps.append(c_name)
+                
+                # Display all images at once in a single call - very stable
+                if valid_imgs:
+                    st.image(valid_imgs, width=75, caption=valid_caps)
             
             if song['Body']:
                 st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
 
-        # BUTTONS: Placed strictly outside the expander for stability
-        c1, c2, c3 = st.columns([1.5, 1.5, 7])
-        with c1:
-            if st.button("➕ List", key=f"list_{idx}"):
+        # 2. THE BUTTONS (Outside expander)
+        # We use a single level of columns here, which is safe
+        b1, b2, _ = st.columns([1.5, 1.5, 7])
+        with b1:
+            if st.button("➕ List", key=f"plist_{idx}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
                     st.toast(f"Added {song['Title']}")
-        with c2:
+        with b2:
             if song['URL']:
                 st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
 
-    # --- PLAYLIST ---
+    # --- PLAYLIST SIDEBAR ---
     if st.session_state.playlist:
         st.sidebar.divider()
         st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
