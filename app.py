@@ -17,9 +17,7 @@ def load_chord_library():
     if not os.path.exists(CHORDS_LIB_FILE): return pd.DataFrame()
     try:
         df = pd.read_csv(CHORDS_LIB_FILE)
-        df.columns = [c.strip() for c in df.columns]
-        if 'Chord Name' in df.columns:
-            df['Chord Name'] = df['Chord Name'].astype(str).str.strip()
+        df.columns = [c.strip() for c in df.columns] 
         return df
     except: return pd.DataFrame()
 
@@ -29,15 +27,11 @@ def load_data():
     try:
         df = pd.read_csv(target_file)
         for col in ['Body', 'Chords', 'Title', 'Artist', 'Book', 'Page', 'URL', 'Difficulty']:
-            if col in df.columns: df[col] = df[col].fillna("").astype(str)
-        
-        def parse_diff(x):
-            try:
-                nums = re.findall(r'\d+', str(x))
-                return int(nums[0]) if nums else 0
-            except: return 0
-            
-        df['Difficulty_5'] = df['Difficulty'].apply(parse_diff)
+            if col in df.columns: 
+                df[col] = df[col].fillna("").astype(str)
+                # Quick clean for lyrics
+                if col == 'Body':
+                    df[col] = df[col].str.replace("MOSELELE.CO.UK", "", case=False)
         return df
     except: return pd.DataFrame()
 
@@ -48,7 +42,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom Styles
 st.markdown("""
     <style>
     .lyrics-box {
@@ -62,12 +55,6 @@ st.markdown("""
         padding: 5px 15px; border-radius: 5px; font-size: 0.85rem; background-color: #fff;
         display: inline-block;
     }
-    .chord-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 10px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -75,7 +62,6 @@ if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
 
 def main():
-    # Logo and Title
     c_l, c_t = st.columns([1, 5])
     with c_l:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=120)
@@ -83,6 +69,19 @@ def main():
 
     df = load_data()
     chord_lib = load_chord_library()
+    
+    # Identify the correct column for images
+    path_col = None
+    if not chord_lib.empty:
+        if 'path' in chord_lib.columns:
+            path_col = 'path'
+        else:
+            # Fallback search if 'path' isn't found for some reason
+            for col in chord_lib.columns:
+                if col.lower() in ['url', 'image', 'file']:
+                    path_col = col
+                    break
+
     if df.empty:
         st.warning("⚠️ Song database not found.")
         return
@@ -92,7 +91,7 @@ def main():
     st.sidebar.header("Search & Filter")
     search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas Only")
-    book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
+    book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()) if 'Book' in df.columns else [])
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
@@ -107,7 +106,8 @@ def main():
 
     # --- FILTERING ---
     f_df = df.copy()
-    if seasonal: f_df = f_df[f_df['Book'].str.contains('Christmas|Winter', case=False)]
+    if seasonal and 'Book' in f_df.columns: 
+        f_df = f_df[f_df['Book'].str.contains('Christmas|Winter', case=False)]
     if search_query:
         f_df = f_df[f_df['Title'].str.lower().str.contains(search_query) | 
                     f_df['Artist'].str.lower().str.contains(search_query) | 
@@ -127,32 +127,27 @@ def main():
         prefix = "🎲 " if st.session_state.random_active else ""
         header = f"{prefix}{song['Title']} - {song['Artist']} | Book {song['Book']}, Page {song['Page']}"
         
-        # 1. THE EXPANDER
         with st.expander(header):
-            # Safe Chord Image Logic (Avoiding nested st.columns)
-            if not chord_lib.empty and song['Chords'].strip():
+            if not chord_lib.empty and song['Chords'].strip() and 'Chord Name' in chord_lib.columns:
                 s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
-                
-                # Fetch only valid local paths
                 valid_imgs = []
                 valid_caps = []
+                
                 for c_name in s_chords:
                     match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
-                    if not match.empty:
-                        img_path = os.path.join(CHORD_IMG_DIR, str(match.iloc[0]['URL']))
+                    if not match.empty and path_col:
+                        img_filename = str(match.iloc[0][path_col])
+                        img_path = os.path.join(CHORD_IMG_DIR, img_filename)
                         if os.path.exists(img_path):
                             valid_imgs.append(img_path)
                             valid_caps.append(c_name)
                 
-                # Display all images at once in a single call - very stable
                 if valid_imgs:
                     st.image(valid_imgs, width=75, caption=valid_caps)
             
             if song['Body']:
                 st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
 
-        # 2. THE BUTTONS (Outside expander)
-        # We use a single level of columns here, which is safe
         b1, b2, _ = st.columns([1.5, 1.5, 7])
         with b1:
             if st.button("➕ List", key=f"plist_{idx}"):
@@ -163,7 +158,6 @@ def main():
             if song['URL']:
                 st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
 
-    # --- PLAYLIST SIDEBAR ---
     if st.session_state.playlist:
         st.sidebar.divider()
         st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
