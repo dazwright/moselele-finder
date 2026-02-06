@@ -17,6 +17,10 @@ def load_data():
     
     # Data Cleaning & Defaults
     df['Body'] = df['Body'].fillna("")
+    
+    # Clean out the MOSELELE.CO.UK watermark and extra whitespace
+    df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
+    
     df['Chords'] = df['Chords'].fillna("")
     df['Artist'] = df['Artist'].fillna("Unknown")
     df['Book'] = df['Book'].fillna("Other").astype(str)
@@ -32,7 +36,6 @@ st.set_page_config(page_title="Moselele song database", page_icon=FAVICON_URL, l
 # Custom CSS for Standardized Font and UI
 st.markdown("""
     <style>
-    /* Force lyrics box to use the same font as the rest of the app */
     .lyrics-box {
         white-space: pre-wrap;
         background-color: #fdfdfd;
@@ -41,7 +44,7 @@ st.markdown("""
         border-radius: 8px;
         font-size: 1.1rem;
         line-height: 1.6;
-        color: #31333F; /* Standard Streamlit text color */
+        color: #31333F; 
     }
     .stExpander { border: 1px solid #e6e6e6; margin-bottom: 10px; }
     </style>
@@ -142,7 +145,9 @@ def main():
             st.markdown(f"**Chords:** `{song['Chords']}`")
 
             if song['Body']:
-                st.markdown(f'<div class="lyrics-box">{song["Body"]}</div>', unsafe_allow_html=True)
+                # Final strip of whitespace to keep it tight
+                clean_body = song['Body'].strip()
+                st.markdown(f'<div class="lyrics-box">{clean_body}</div>', unsafe_allow_html=True)
             else:
                 st.warning("Lyrics could not be displayed.")
 
