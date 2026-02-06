@@ -45,26 +45,11 @@ st.markdown("""
     .stExpander { border: 1px solid #e6e6e6; }
     .action-btn { text-decoration: none; color: #31333F !important; border: 1px solid #ccc; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; }
     .stButton button { width: 100%; height: 38px; margin-top: 5px; }
-    
     .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; margin-bottom: 5px; }
-    
-    /* Genre Cloud Button Styling */
-    div.stButton > button.tag-cloud-btn {
-        background-color: #f0f2f6;
-        color: #31333f;
-        border: 1px solid #dcdde1;
-        border-radius: 15px;
-        padding: 0px 10px;
-        height: 25px !important;
-        width: auto !important;
-        font-size: 0.75rem !important;
-        margin: 2px !important;
-        display: inline-block !important;
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE ---
+# --- SESSION STATE INITIALIZATION ---
 if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
 if 'active_genres' not in st.session_state: st.session_state.active_genres = []
@@ -79,12 +64,11 @@ def main():
     chord_lib = load_chord_library()
     if df.empty: return
 
-    # --- GENRE/TAG PRE-PROCESSING ---
+    # --- GENRE PROCESSING ---
     all_genres = []
     if 'Tags' in df.columns:
         for val in df['Tags']:
             all_genres.extend([t.strip() for t in val.split(',') if t.strip()])
-    
     genre_counts = Counter(all_genres)
     unique_genres = sorted(genre_counts.keys())
 
@@ -96,7 +80,7 @@ def main():
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
     
-    # Genres Multiselect
+    # Genres filter linked to session state
     selected_genres = st.sidebar.multiselect("Genres", options=unique_genres, key="active_genres")
 
     st.sidebar.divider()
@@ -104,8 +88,11 @@ def main():
     r1, r2 = st.sidebar.columns(2)
     if r1.button("Pick 1"):
         st.session_state.random_active, st.session_state.rcount = True, 1
+        st.rerun()
     if r2.button("Pick 10"):
         st.session_state.random_active, st.session_state.rcount = True, 10
+        st.rerun()
+    
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
         st.rerun()
@@ -115,15 +102,14 @@ def main():
     st.sidebar.subheader("Genres")
     if genre_counts:
         sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
-        cloud_cont = st.sidebar.container()
-        with cloud_cont:
-            for g, count in sorted_genres[:30]:
-                if st.button(f"{g} ({count})", key=f"cloud_{g}"):
-                    if g not in st.session_state.active_genres:
-                        st.session_state.active_genres.append(g)
-                        st.rerun()
+        for g, count in sorted_genres[:25]:
+            # Use columns or small buttons for the cloud
+            if st.sidebar.button(f"{g} ({count})", key=f"cloud_{g}"):
+                if g not in st.session_state.active_genres:
+                    st.session_state.active_genres.append(g)
+                    st.rerun()
 
-    # --- PLAYLIST SIDEBAR SECTION ---
+    # --- PLAYLIST SIDEBAR ---
     st.sidebar.divider()
     st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
     if st.session_state.playlist:
@@ -132,8 +118,6 @@ def main():
         if st.sidebar.button("Clear Playlist"):
             st.session_state.playlist = []
             st.rerun()
-    else:
-        st.sidebar.info("Your playlist is empty.")
 
     # --- FILTERING LOGIC ---
     f_df = df.copy()
@@ -182,9 +166,12 @@ def main():
                 if song['Body']: st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
 
         with list_col:
+            # FIX: Explicitly update state and trigger rerun
             if st.button("➕ List", key=f"l_{idx}"):
                 if song_id not in st.session_state.playlist:
-                    st.session_state.playlist.append(song_id); st.toast(f"Added {song['Title']}")
+                    st.session_state.playlist.append(song_id)
+                    st.rerun() # Force sidebar to update immediately
+
         with pdf_col:
             if song.get('URL'): st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
 
