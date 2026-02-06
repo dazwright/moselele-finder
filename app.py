@@ -49,11 +49,20 @@ def generate_qr(data):
 
 def clean_and_bold_lyrics(text):
     if not text: return ""
-    # Scrub watermark watermarks
+    
+    # 1. Scrub watermarks
     text = re.sub(r'MOSELELE\.CO\.UK', '', text, flags=re.IGNORECASE)
-    # Remove existing bold markers to prevent Markdown errors
+    
+    # 2. Strip existing bold markers
     text = text.replace("**", "")
-    # Bold bracketed chords using HTML <b> tags
+
+    # 3. Spacing logic: Add space if bracket is next to any character other than "-"
+    # Before '[': if preceding char isn't whitespace, '-', or another '['
+    text = re.sub(r'([^\s\-\[])(\[)', r'\1 \2', text)
+    # After ']': if following char isn't whitespace, '-', or another ']'
+    text = re.sub(r'(\])([^\s\-\]])', r'\1 \2', text)
+    
+    # 4. Bold bracketed chords using HTML <b> tags
     return re.sub(r'(\[[^\]]+\])', r'<b>\1</b>', text)
 
 @st.cache_data
@@ -81,7 +90,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for square logo and lyrics
 st.markdown("""
     <style>
     [data-testid="stImage"] img { border-radius: 0px !important; }
@@ -141,7 +149,7 @@ def main():
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()) if 'Book' in df.columns else [])
     
-    # Genre Data for Cloud
+    # Genre Data Cloud
     all_tags = []
     if 'Tags' in df.columns:
         for val in df['Tags']:
@@ -164,16 +172,15 @@ def main():
         for g, count in sorted_genres[:20]:
             st.sidebar.button(f"{g} ({count})", key=f"cloud_{g}", on_click=add_genre, args=(g,))
 
-    # Playlist Display & QR Share
+    # Playlist & QR Share
     st.sidebar.divider()
     st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
     if st.session_state.playlist:
         for p in st.session_state.playlist:
             st.sidebar.caption(f"• {p}")
         
-        # QR Code Section
         st.sidebar.write("---")
-        base_url = "https://moselele-finder.streamlit.app/" # Ensure this matches your deployment URL
+        base_url = "https://moselele-finder.streamlit.app/" 
         share_url = f"{base_url}?playlist={quote(','.join(st.session_state.playlist))}"
         qr_img = generate_qr(share_url)
         st.sidebar.image(qr_img, caption="Scan to Share Playlist", use_container_width=True)
@@ -193,7 +200,7 @@ def main():
     if st.session_state.active_genres:
         f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in st.session_state.active_genres))]
 
-    # Default logic (50 songs)
+    # Default Logic
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
     elif not any([search_query, book_filter, st.session_state.active_genres, seasonal]):
