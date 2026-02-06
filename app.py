@@ -5,7 +5,8 @@ import random
 
 # --- CONFIGURATION ---
 CSV_FILE = "moselele_songs_cleaned.csv"
-LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2016/04/moselele-logo-small.png"
+FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
+LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
 def load_data():
     if not os.path.exists(CSV_FILE):
@@ -21,26 +22,26 @@ def load_data():
     df['Book'] = df['Book'].fillna("Other").astype(str)
     
     # Scale Difficulty to 5 (Divides original 10-point scale by 2)
-    df['Difficulty_5'] = df['Difficulty'].apply(lambda x: min(5, round(x / 2)) if pd.notnull(x) else 3)
+    df['Difficulty_5'] = df['Difficulty'].apply(lambda x: min(5, round(x / 2)) if pd.notnull(x) else 0)
     
     return df
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Moselele Song Database", page_icon="🎼", layout="wide")
+st.set_page_config(page_title="Moselele song database", page_icon=FAVICON_URL, layout="wide")
 
-# Custom CSS for Monospaced Lyrics and UI
+# Custom CSS for Standardized Font and UI
 st.markdown("""
     <style>
+    /* Force lyrics box to use the same font as the rest of the app */
     .lyrics-box {
-        font-family: 'Courier New', Courier, monospace;
         white-space: pre-wrap;
-        background-color: #ffffff;
-        padding: 20px;
-        border: 1px solid #ddd;
+        background-color: #fdfdfd;
+        padding: 25px;
+        border: 1px solid #eee;
         border-radius: 8px;
-        font-size: 15px;
-        line-height: 1.2;
-        color: #111;
+        font-size: 1.1rem;
+        line-height: 1.6;
+        color: #31333F; /* Standard Streamlit text color */
     }
     .stExpander { border: 1px solid #e6e6e6; margin-bottom: 10px; }
     </style>
@@ -62,16 +63,12 @@ def main():
     if df.empty: return
 
     # --- SIDEBAR SEARCH & FILTERS ---
-    st.sidebar.image(LOGO_URL, width=100)
+    st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
     
-    search_query = st.sidebar.text_input("Song or Artist", "").lower()
+    search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "").lower()
     chord_query = st.sidebar.text_input("Contains Chords (e.g. G, C)", "").lower()
-    
-    # Seasonal Filter
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
-    
-    # Book Filter
     all_books = sorted(df['Book'].unique())
     book_filter = st.sidebar.multiselect("Books", options=all_books)
 
@@ -84,8 +81,6 @@ def main():
 
     # --- FILTERING LOGIC ---
     filtered_df = df.copy()
-
-    # Determine if we are in "Initial Load" state
     is_filtering = any([search_query, chord_query, book_filter, seasonal, pick_1, pick_10])
 
     if seasonal:
@@ -94,7 +89,8 @@ def main():
     if search_query:
         filtered_df = filtered_df[
             (filtered_df['Title'].str.lower().str.contains(search_query)) |
-            (filtered_df['Artist'].str.lower().str.contains(search_query))
+            (filtered_df['Artist'].str.lower().str.contains(search_query)) |
+            (filtered_df['Body'].str.lower().str.contains(search_query))
         ]
 
     if chord_query:
@@ -111,7 +107,6 @@ def main():
     elif pick_10:
         filtered_df = filtered_df.sample(min(10, len(filtered_df)))
     elif not is_filtering:
-        # ON LOAD: Show 50 random songs ordered by difficulty
         filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5')
 
     # --- PLAYLIST SIDEBAR ---
@@ -130,9 +125,11 @@ def main():
     for _, song in filtered_df.iterrows():
         song_id = f"{song['Title']} ({song['Artist']})"
         
-        with st.expander(f"{int(song['Difficulty_5'])}/5 | {song['Title']} - {song['Artist']}"):
+        diff_score = int(song['Difficulty_5'])
+        diff_display = f"{diff_score}/5" if diff_score > 0 else "NA"
+        
+        with st.expander(f"{diff_display} | {song['Title']} - {song['Artist']}"):
             
-            # Action Buttons & Meta
             c1, c2, c3 = st.columns([2, 2, 2])
             if c1.button("Add to Playlist", key=f"add_{song['Title']}"):
                 if song_id not in st.session_state.playlist:
@@ -144,7 +141,6 @@ def main():
 
             st.markdown(f"**Chords:** `{song['Chords']}`")
 
-            # Lyrics Display
             if song['Body']:
                 st.markdown(f'<div class="lyrics-box">{song["Body"]}</div>', unsafe_allow_html=True)
             else:
