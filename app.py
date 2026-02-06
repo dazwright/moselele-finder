@@ -46,15 +46,33 @@ st.markdown("""
     .action-btn { text-decoration: none; color: #31333F !important; border: 1px solid #ccc; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; }
     .stButton button { width: 100%; height: 38px; margin-top: 5px; }
     
-    /* Tag Cloud Styling */
-    .tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #f9f9f9; border-radius: 10px; border: 1px solid #eee; }
-    .tag-item { color: #555; background: #fff; padding: 2px 8px; border-radius: 15px; border: 1px solid #ddd; font-size: 0.8rem; }
-    .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; }
+    /* Tag Display Badges */
+    .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; margin-bottom: 5px; }
+    
+    /* Clickable Tag Cloud Styling */
+    div.stButton > button.tag-cloud-btn {
+        background-color: #f0f2f6;
+        color: #31333f;
+        border: 1px solid #dcdde1;
+        border-radius: 15px;
+        padding: 0px 10px;
+        height: 25px !important;
+        width: auto !important;
+        font-size: 0.75rem !important;
+        margin: 2px !important;
+        display: inline-block !important;
+    }
+    div.stButton > button.tag-cloud-btn:hover {
+        border-color: #ff4b4b;
+        color: #ff4b4b;
+    }
     </style>
 """, unsafe_allow_html=True)
 
+# --- SESSION STATE ---
 if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
+if 'active_tags' not in st.session_state: st.session_state.active_tags = []
 
 def main():
     col_logo, col_title = st.columns([1, 5])
@@ -66,10 +84,9 @@ def main():
     chord_lib = load_chord_library()
     if df.empty: return
 
-    # --- TAG PROCESSING ---
+    # --- TAG PRE-PROCESSING ---
     all_tags = []
     if 'Tags' in df.columns:
-        # Split commas, strip whitespace, and filter out empty strings
         for val in df['Tags']:
             all_tags.extend([t.strip() for t in val.split(',') if t.strip()])
     
@@ -79,13 +96,13 @@ def main():
     # --- SIDEBAR ---
     if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, width=150)
     st.sidebar.header("Search & Filter")
-    search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     
+    search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
     
-    # Tag Multi-select Search
-    tag_filter = st.sidebar.multiselect("Search by Tags", options=unique_tags)
+    # Tag Filter (Populated by session state for interactivity)
+    selected_tags = st.sidebar.multiselect("Active Tags", options=unique_tags, key="active_tags")
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
@@ -98,6 +115,25 @@ def main():
         st.session_state.random_active = False
         st.rerun()
 
+    # --- TAG CLOUD (Interactivity) ---
+    st.sidebar.divider()
+    st.sidebar.subheader("Interactive Tag Cloud")
+    
+    # Create small buttons for the tag cloud
+    if tag_counts:
+        # Sort by frequency for a better cloud feel
+        sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+        
+        # Streamlit workaround for "flex-row" of buttons
+        # We manually render buttons; if clicked, add to session_state.active_tags
+        cols = st.sidebar.container()
+        with cols:
+            for tag, count in sorted_tags[:30]: # Limit to top 30 for sidebar neatness
+                if st.button(f"{tag} ({count})", key=f"cloud_{tag}", help=f"Filter by {tag}"):
+                    if tag not in st.session_state.active_tags:
+                        st.session_state.active_tags.append(tag)
+                        st.rerun()
+
     # --- FILTERING LOGIC ---
     f_df = df.copy()
     if seasonal:
@@ -106,13 +142,12 @@ def main():
         f_df = f_df[f_df['Title'].str.lower().str.contains(search_query) | f_df['Artist'].str.lower().str.contains(search_query) | f_df['Body'].str.lower().str.contains(search_query)]
     if book_filter:
         f_df = f_df[f_df['Book'].isin(book_filter)]
-    if tag_filter:
-        # Check if any of the selected tags exist in the comma-delimited 'Tags' string
-        f_df = f_df[f_df['Tags'].apply(lambda x: any(t in [s.strip() for s in x.split(',')] for t in tag_filter))]
+    if selected_tags:
+        f_df = f_df[f_df['Tags'].apply(lambda x: any(t in [s.strip() for s in x.split(',')] for t in selected_tags))]
 
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
-    elif not any([search_query, book_filter, tag_filter, seasonal]):
+    elif not any([search_query, book_filter, selected_tags, seasonal]):
         f_df = f_df.sample(n=min(50, len(f_df)))
 
     # --- MAIN LOOP ---
@@ -125,11 +160,9 @@ def main():
         res_col, list_col, pdf_col = st.columns([7.5, 1.2, 1.2])
         with res_col:
             with st.expander(header):
-                # Show tags inside the song box
                 if song.get('Tags'):
                     tag_html = "".join([f'<span class="tag-display">{t.strip()}</span>' for t in song['Tags'].split(',') if t.strip()])
                     st.markdown(tag_html, unsafe_allow_html=True)
-                    st.write("")
 
                 chord_str = song.get('Chords', '').strip()
                 if chord_str:
@@ -154,25 +187,10 @@ def main():
         with pdf_col:
             if song.get('URL'): st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
 
-    # --- WORD CLOUD AT BOTTOM OF SIDEBAR ---
-    st.sidebar.divider()
-    st.sidebar.subheader("Tag Cloud")
-    
-    # Create HTML Tag Cloud
-    # Font size is scaled based on frequency (min 0.7rem, max 1.5rem)
-    if tag_counts:
-        max_count = max(tag_counts.values())
-        cloud_html = '<div class="tag-cloud">'
-        for tag, count in sorted(tag_counts.items(), key=lambda x: x[0]):
-            size = 0.7 + (count / max_count) * 0.8
-            cloud_html += f'<span class="tag-item" style="font-size: {size}rem;">{tag}</span>'
-        cloud_html += '</div>'
-        st.sidebar.markdown(cloud_html, unsafe_allow_html=True)
-
     # --- PLAYLIST ---
     if st.session_state.playlist:
         st.sidebar.divider()
-        st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
+        st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
         for p in st.session_state.playlist: st.sidebar.caption(f"• {p}")
         if st.sidebar.button("Clear Playlist"):
             st.session_state.playlist = []; st.rerun()
