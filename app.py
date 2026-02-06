@@ -32,18 +32,22 @@ def add_genre(genre):
         st.session_state.active_genres.append(genre)
     st.rerun()
 
+def refresh_page():
+    """Clears selection state to force a new random sample of 50"""
+    st.session_state.random_active = False
+    st.session_state.active_genres = []
+    # We use a dummy key to force the sample logic to re-run
+    st.session_state["refresh_tick"] = st.session_state.get("refresh_tick", 0) + 1
+    st.rerun()
+
 # --- TEXT PROCESSING ---
 def clean_and_bold_lyrics(text):
     if not text:
         return ""
-    # 1. Remove the website watermark (case insensitive)
+    # Remove watermarks and existing bold markers
     text = re.sub(r'MOSELELE\.CO\.UK', '', text, flags=re.IGNORECASE)
-    
-    # 2. Strip any existing double asterisks that are causing issues
     text = text.replace("**", "")
-    
-    # 3. Use HTML <b> tags instead of Markdown ** for stability inside the div
-    # This finds [Am] and turns it into <b>[Am]</b>
+    # Bold bracketed chords using HTML for stability
     return re.sub(r'(\[[^\]]+\])', r'<b>\1</b>', text)
 
 @st.cache_data
@@ -74,6 +78,11 @@ st.set_page_config(page_title="Moselele Database", page_icon=FAVICON_PATH if os.
 
 st.markdown("""
     <style>
+    /* Square corners for the logo container */
+    [data-testid="stImage"] img {
+        border-radius: 0px !important;
+    }
+    
     .lyrics-box { 
         white-space: pre-wrap; 
         background-color: #fdfdfd; 
@@ -85,7 +94,6 @@ st.markdown("""
         color: #31333F; 
         font-family: sans-serif;
     }
-    /* Ensure bold tags inside our custom box are actually bold */
     .lyrics-box b {
         font-weight: 800;
         color: #000;
@@ -134,6 +142,11 @@ def main():
 
     # --- SIDEBAR ---
     if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, width=150)
+    
+    # New Refresh Button
+    st.sidebar.button("🔄 Refresh Selection", on_click=refresh_page, use_container_width=True)
+    st.sidebar.divider()
+
     st.sidebar.header("Search & Filter")
     search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
@@ -176,9 +189,11 @@ def main():
     if st.session_state.active_genres:
         f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in st.session_state.active_genres))]
 
+    # Logic for displaying 50 songs
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
     elif not any([search_query, book_filter, st.session_state.active_genres, seasonal]):
+        # Default/Refresh state
         f_df = f_df.sample(n=min(50, len(f_df)))
 
     # --- MAIN LOOP ---
@@ -210,7 +225,6 @@ def main():
                         if valid_imgs: st.image(valid_imgs, width=75, caption=valid_caps)
                 
                 if song['Body']: 
-                    # THE FIX: Clean watermark and use HTML bold tags
                     processed_lyrics = clean_and_bold_lyrics(song['Body'].strip())
                     st.markdown(f'<div class="lyrics-box">{processed_lyrics}</div>', unsafe_allow_html=True)
 
