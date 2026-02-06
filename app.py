@@ -33,16 +33,18 @@ def add_genre(genre):
     st.rerun()
 
 # --- TEXT PROCESSING ---
-def bold_bracketed_chords(text):
+def clean_and_bold_lyrics(text):
     if not text:
         return ""
-    # 1. First, strip out any existing double asterisks to prevent "triple-bolding" 
-    # that causes the Markdown engine to fail and display raw ** symbols.
-    clean_text = text.replace("**", "")
+    # 1. Remove the website watermark (case insensitive)
+    text = re.sub(r'MOSELELE\.CO\.UK', '', text, flags=re.IGNORECASE)
     
-    # 2. Use a non-greedy regex to find [Chord] and wrap it.
-    # We use \b to ensure we are looking at bracket boundaries.
-    return re.sub(r'(\[[^\]]+\])', r'**\1**', clean_text)
+    # 2. Strip any existing double asterisks that are causing issues
+    text = text.replace("**", "")
+    
+    # 3. Use HTML <b> tags instead of Markdown ** for stability inside the div
+    # This finds [Am] and turns it into <b>[Am]</b>
+    return re.sub(r'(\[[^\]]+\])', r'<b>\1</b>', text)
 
 @st.cache_data
 def load_chord_library():
@@ -81,7 +83,12 @@ st.markdown("""
         font-size: 1.1rem; 
         line-height: 1.6; 
         color: #31333F; 
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-family: sans-serif;
+    }
+    /* Ensure bold tags inside our custom box are actually bold */
+    .lyrics-box b {
+        font-weight: 800;
+        color: #000;
     }
     .stExpander { border: 1px solid #e6e6e6; }
     .action-btn { 
@@ -103,7 +110,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE INITIALIZATION ---
 if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
 if 'active_genres' not in st.session_state: st.session_state.active_genres = []
@@ -204,9 +210,9 @@ def main():
                         if valid_imgs: st.image(valid_imgs, width=75, caption=valid_caps)
                 
                 if song['Body']: 
-                    # APPLY NEW CLEAN BOLD LOGIC
-                    lyrics_with_bold = bold_bracketed_chords(song['Body'].strip())
-                    st.markdown(f'<div class="lyrics-box">{lyrics_with_bold}</div>', unsafe_allow_html=True)
+                    # THE FIX: Clean watermark and use HTML bold tags
+                    processed_lyrics = clean_and_bold_lyrics(song['Body'].strip())
+                    st.markdown(f'<div class="lyrics-box">{processed_lyrics}</div>', unsafe_allow_html=True)
 
         with list_col:
             st.button("➕ List", key=f"plist_btn_{idx}", on_click=handle_playlist_click, args=(song_id,))
