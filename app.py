@@ -5,26 +5,19 @@ import random
 import re
 
 # --- CONFIGURATION ---
-CSV_FILE = "moselele_songs_cleaned.csv"
+CSV_FILE = "moselele_songs_final_clean.csv" # Pointing to your most recent clean file
+CHORDS_LIB_FILE = "chords.csv"
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
-def clean_stray_chars(text):
-    """Removes single uppercase characters occurring before the first chord bracket."""
-    if not text or '[' not in text:
-        return text
-    
-    # Split text at the first bracket
-    parts = text.split('[', 1)
-    pre_chord = parts[0]
-    post_chord = '[' + parts[1]
-    
-    # Remove single uppercase characters (e.g., 'A ', ' B ', 'C\n') from the pre-chord area
-    # This regex looks for single capital letters surrounded by whitespace or start of string
-    cleaned_pre = re.sub(r'(^|\s)[A-Z](\s|$)', r'\1\2', pre_chord).strip()
-    
-    # If the pre-chord area was just those characters, it will now be empty
-    return (cleaned_pre + "\n" + post_chord).strip() if cleaned_pre else post_chord
+@st.cache_data
+def load_chord_library():
+    if not os.path.exists(CHORDS_LIB_FILE):
+        return pd.DataFrame()
+    df = pd.read_csv(CHORDS_LIB_FILE)
+    # Ensure column names are clean
+    df.columns = [c.strip() for c in df.columns]
+    return df
 
 def clean_difficulty(val):
     try:
@@ -43,12 +36,7 @@ def load_data():
         return pd.DataFrame()
     try:
         df = pd.read_csv(CSV_FILE)
-        # 1. Clean Body Text
         df['Body'] = df['Body'].fillna("").astype(str)
-        df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
-        df['Body'] = df['Body'].apply(clean_stray_chars)
-        
-        # 2. Standardize other columns
         df['Chords'] = df['Chords'].fillna("").astype(str)
         df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
         df['Book'] = df['Book'].fillna("Other").astype(str)
@@ -75,12 +63,6 @@ st.markdown("""
         color: #31333F; 
     }
     .stExpander { border: 1px solid #e6e6e6; margin-bottom: 0px; }
-    div[data-testid="stVerticalBlock"] > div:has(button[kind="secondary"]) button {
-        padding: 10px 5px !important;
-        height: auto !important;
-        min-height: 45px;
-    }
-    .stButton button { margin-top: 5px; width: 100%; height: 40px; }
     .pdf-btn {
         display: inline-flex;
         align-items: center;
@@ -94,9 +76,21 @@ st.markdown("""
         text-decoration: none;
         font-size: 14px;
         margin-top: 5px;
-        font-weight: 400;
     }
-    .pdf-btn:hover { border-color: #ff4b4b; color: #ff4b4b; background-color: #fffafa; }
+    .chord-diagram-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    .chord-item {
+        text-align: center;
+        font-size: 12px;
+        font-weight: bold;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,45 +103,41 @@ def main():
     with col_title: st.title("Moselele song database")
 
     df = load_data()
+    chord_lib = load_chord_library()
+    
     if df.empty:
-        st.warning("No data found. Check if 'moselele_songs_cleaned.csv' is in the folder.")
+        st.warning("No data found. Check if your CSV files are in the folder.")
         return
 
     # --- SIDEBAR ---
     st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
-    
     search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
-    col_r1, col_r2 = st.sidebar.columns(2)
-    pick_1 = col_r1.button("Pick 1 Random")
-    pick_10 = col_r2.button("Pick 10 Random")
-    
+    c_r1, c_r2 = st.sidebar.columns(2)
+    pick_1 = c_r1.button("Pick 1 Random")
+    pick_10 = c_r2.button("Pick 10 Random")
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
         st.rerun()
 
-    # --- FILTERING LOGIC ---
+    # --- FILTERING ---
     filtered_df = df.copy()
-    
     if seasonal:
         filtered_df = filtered_df[filtered_df['Book'].str.contains('Christmas|Winter|Snow', case=False)]
-    
     if search_query:
         filtered_df = filtered_df[
             (filtered_df['Title'].str.lower().str.contains(search_query)) |
             (filtered_df['Artist'].str.lower().str.contains(search_query)) |
             (filtered_df['Body'].str.lower().str.contains(search_query))
         ]
-    
     if book_filter:
         filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
 
-    # --- RANDOM/DEFAULT LOGIC ---
     if pick_1 or pick_10:
         st.session_state.random_active = True
         count = 1 if pick_1 else 10
@@ -171,7 +161,6 @@ def main():
         song_id = f"{song['Title']} ({song['Artist']})"
         diff_score = int(song['Difficulty_5'])
         diff_text = f"{diff_score}/5" if diff_score > 0 else "NA"
-        
         prefix = "🎲 " if st.session_state.random_active else ""
         header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {diff_text} | Book {song['Book']}, Page {song['Page']}"
         
@@ -180,6 +169,22 @@ def main():
         with col_exp:
             with st.expander(header):
                 st.markdown(f"**Chords:** `{song['Chords']}`")
+                
+                # --- CHORD DIAGRAM SECTION ---
+                if not chord_lib.empty and song['Chords']:
+                    # Split the song's chords into a list
+                    song_chords = [c.strip() for c in song['Chords'].split(',')]
+                    
+                    # Create columns for diagrams
+                    chord_cols = st.columns(min(len(song_chords), 8)) # Max 8 per row
+                    for i, chord in enumerate(song_chords):
+                        # Match with library (case insensitive)
+                        match = chord_lib[chord_lib['Chord Name'].str.lower() == chord.lower()]
+                        if not match.empty:
+                            img_url = match.iloc[0]['URL']
+                            with chord_cols[i % 8]:
+                                st.image(img_url, width=80, caption=chord)
+                
                 if song['Body']:
                     st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
                 else:
