@@ -9,6 +9,23 @@ CSV_FILE = "moselele_songs_cleaned.csv"
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
 
+def clean_stray_chars(text):
+    """Removes single uppercase characters occurring before the first chord bracket."""
+    if not text or '[' not in text:
+        return text
+    
+    # Split text at the first bracket
+    parts = text.split('[', 1)
+    pre_chord = parts[0]
+    post_chord = '[' + parts[1]
+    
+    # Remove single uppercase characters (e.g., 'A ', ' B ', 'C\n') from the pre-chord area
+    # This regex looks for single capital letters surrounded by whitespace or start of string
+    cleaned_pre = re.sub(r'(^|\s)[A-Z](\s|$)', r'\1\2', pre_chord).strip()
+    
+    # If the pre-chord area was just those characters, it will now be empty
+    return (cleaned_pre + "\n" + post_chord).strip() if cleaned_pre else post_chord
+
 def clean_difficulty(val):
     try:
         if pd.isna(val) or val == "" or str(val).strip().lower() == "na":
@@ -26,8 +43,12 @@ def load_data():
         return pd.DataFrame()
     try:
         df = pd.read_csv(CSV_FILE)
+        # 1. Clean Body Text
         df['Body'] = df['Body'].fillna("").astype(str)
         df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
+        df['Body'] = df['Body'].apply(clean_stray_chars)
+        
+        # 2. Standardize other columns
         df['Chords'] = df['Chords'].fillna("").astype(str)
         df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
         df['Book'] = df['Book'].fillna("Other").astype(str)
@@ -96,7 +117,6 @@ def main():
     st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
     
-    # Global Search with Autofocus
     search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
@@ -114,7 +134,6 @@ def main():
     # --- FILTERING LOGIC ---
     filtered_df = df.copy()
     
-    # Apply standard filters
     if seasonal:
         filtered_df = filtered_df[filtered_df['Book'].str.contains('Christmas|Winter|Snow', case=False)]
     
@@ -129,13 +148,10 @@ def main():
         filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
 
     # --- RANDOM/DEFAULT LOGIC ---
-    # Trigger random state
     if pick_1 or pick_10:
         st.session_state.random_active = True
         count = 1 if pick_1 else 10
         filtered_df = filtered_df.sample(n=min(count, len(filtered_df)))
-    
-    # If no manual filters are set and random is not active, show the 50 random default
     elif not any([search_query, book_filter, seasonal]) and not st.session_state.random_active:
         filtered_df = df.sample(n=min(50, len(df))).sort_values('Difficulty_5')
 
@@ -143,40 +159,4 @@ def main():
     st.sidebar.divider()
     st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
     for p_song in st.session_state.playlist:
-        st.sidebar.caption(f"• {p_song}")
-    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
-        st.session_state.playlist = []
-        st.rerun()
-
-    # --- MAIN DISPLAY ---
-    st.write(f"Displaying **{len(filtered_df)}** songs")
-
-    for _, song in filtered_df.iterrows():
-        song_id = f"{song['Title']} ({song['Artist']})"
-        diff_score = int(song['Difficulty_5'])
-        diff_text = f"{diff_score}/5" if diff_score > 0 else "NA"
-        
-        prefix = "🎲 " if st.session_state.random_active else ""
-        header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {diff_text} | Book {song['Book']}, Page {song['Page']}"
-        
-        col_exp, col_p, col_pdf = st.columns([7.5, 1.2, 1.2])
-        
-        with col_exp:
-            with st.expander(header):
-                st.markdown(f"**Chords:** `{song['Chords']}`")
-                if song['Body']:
-                    st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
-                else:
-                    st.info("Lyrics not available.")
-        
-        with col_p:
-            if st.button("➕ List", key=f"p_{song['Title']}_{_}"):
-                if song_id not in st.session_state.playlist:
-                    st.session_state.playlist.append(song_id)
-                    st.toast(f"Added {song['Title']}")
-        
-        with col_pdf:
-            st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+        st.sidebar.caption(f"
