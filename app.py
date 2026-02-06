@@ -46,10 +46,9 @@ st.markdown("""
     .action-btn { text-decoration: none; color: #31333F !important; border: 1px solid #ccc; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; }
     .stButton button { width: 100%; height: 38px; margin-top: 5px; }
     
-    /* Tag Display Badges */
     .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; margin-bottom: 5px; }
     
-    /* Clickable Tag Cloud Styling */
+    /* Genre Cloud Button Styling */
     div.stButton > button.tag-cloud-btn {
         background-color: #f0f2f6;
         color: #31333f;
@@ -62,17 +61,13 @@ st.markdown("""
         margin: 2px !important;
         display: inline-block !important;
     }
-    div.stButton > button.tag-cloud-btn:hover {
-        border-color: #ff4b4b;
-        color: #ff4b4b;
-    }
     </style>
 """, unsafe_allow_html=True)
 
 # --- SESSION STATE ---
 if 'playlist' not in st.session_state: st.session_state.playlist = []
 if 'random_active' not in st.session_state: st.session_state.random_active = False
-if 'active_tags' not in st.session_state: st.session_state.active_tags = []
+if 'active_genres' not in st.session_state: st.session_state.active_genres = []
 
 def main():
     col_logo, col_title = st.columns([1, 5])
@@ -84,14 +79,14 @@ def main():
     chord_lib = load_chord_library()
     if df.empty: return
 
-    # --- TAG PRE-PROCESSING ---
-    all_tags = []
+    # --- GENRE/TAG PRE-PROCESSING ---
+    all_genres = []
     if 'Tags' in df.columns:
         for val in df['Tags']:
-            all_tags.extend([t.strip() for t in val.split(',') if t.strip()])
+            all_genres.extend([t.strip() for t in val.split(',') if t.strip()])
     
-    tag_counts = Counter(all_tags)
-    unique_tags = sorted(tag_counts.keys())
+    genre_counts = Counter(all_genres)
+    unique_genres = sorted(genre_counts.keys())
 
     # --- SIDEBAR ---
     if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, width=150)
@@ -101,8 +96,8 @@ def main():
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
     
-    # Tag Filter (Populated by session state for interactivity)
-    selected_tags = st.sidebar.multiselect("Active Tags", options=unique_tags, key="active_tags")
+    # Genres Multiselect
+    selected_genres = st.sidebar.multiselect("Genres", options=unique_genres, key="active_genres")
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
@@ -115,24 +110,30 @@ def main():
         st.session_state.random_active = False
         st.rerun()
 
-    # --- TAG CLOUD (Interactivity) ---
+    # --- GENRES CLOUD ---
     st.sidebar.divider()
-    st.sidebar.subheader("Interactive Tag Cloud")
-    
-    # Create small buttons for the tag cloud
-    if tag_counts:
-        # Sort by frequency for a better cloud feel
-        sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
-        
-        # Streamlit workaround for "flex-row" of buttons
-        # We manually render buttons; if clicked, add to session_state.active_tags
-        cols = st.sidebar.container()
-        with cols:
-            for tag, count in sorted_tags[:30]: # Limit to top 30 for sidebar neatness
-                if st.button(f"{tag} ({count})", key=f"cloud_{tag}", help=f"Filter by {tag}"):
-                    if tag not in st.session_state.active_tags:
-                        st.session_state.active_tags.append(tag)
+    st.sidebar.subheader("Genres")
+    if genre_counts:
+        sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
+        cloud_cont = st.sidebar.container()
+        with cloud_cont:
+            for g, count in sorted_genres[:30]:
+                if st.button(f"{g} ({count})", key=f"cloud_{g}"):
+                    if g not in st.session_state.active_genres:
+                        st.session_state.active_genres.append(g)
                         st.rerun()
+
+    # --- PLAYLIST SIDEBAR SECTION ---
+    st.sidebar.divider()
+    st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
+    if st.session_state.playlist:
+        for p in st.session_state.playlist:
+            st.sidebar.caption(f"• {p}")
+        if st.sidebar.button("Clear Playlist"):
+            st.session_state.playlist = []
+            st.rerun()
+    else:
+        st.sidebar.info("Your playlist is empty.")
 
     # --- FILTERING LOGIC ---
     f_df = df.copy()
@@ -142,12 +143,12 @@ def main():
         f_df = f_df[f_df['Title'].str.lower().str.contains(search_query) | f_df['Artist'].str.lower().str.contains(search_query) | f_df['Body'].str.lower().str.contains(search_query)]
     if book_filter:
         f_df = f_df[f_df['Book'].isin(book_filter)]
-    if selected_tags:
-        f_df = f_df[f_df['Tags'].apply(lambda x: any(t in [s.strip() for s in x.split(',')] for t in selected_tags))]
+    if selected_genres:
+        f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in selected_genres))]
 
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
-    elif not any([search_query, book_filter, selected_tags, seasonal]):
+    elif not any([search_query, book_filter, selected_genres, seasonal]):
         f_df = f_df.sample(n=min(50, len(f_df)))
 
     # --- MAIN LOOP ---
@@ -186,14 +187,6 @@ def main():
                     st.session_state.playlist.append(song_id); st.toast(f"Added {song['Title']}")
         with pdf_col:
             if song.get('URL'): st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
-
-    # --- PLAYLIST ---
-    if st.session_state.playlist:
-        st.sidebar.divider()
-        st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
-        for p in st.session_state.playlist: st.sidebar.caption(f"• {p}")
-        if st.sidebar.button("Clear Playlist"):
-            st.session_state.playlist = []; st.rerun()
 
 if __name__ == "__main__":
     main()
