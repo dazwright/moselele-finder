@@ -83,6 +83,17 @@ st.markdown("""
         font-size: 14px;
         margin-top: 5px;
     }
+    /* Simple flexbox for chords to avoid nested column crashes */
+    .chord-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    .chord-card {
+        text-align: center;
+        width: 70px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -98,7 +109,7 @@ def main():
     chord_lib = load_chord_library()
     
     if df.empty:
-        st.warning(f"⚠️ Song database not found. Check files in: `{os.getcwd()}`")
+        st.warning(f"⚠️ Song database not found.")
         return
 
     # --- SIDEBAR ---
@@ -141,34 +152,34 @@ def main():
         d_val = int(song['Difficulty_5'])
         d_text = f"{d_val}/5" if d_val > 0 else "NA"
         prefix = "🎲 " if st.session_state.random_active else ""
-        header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {d_text} | Book {song['Book']}, Page {song['Page']}"
+        header = f"{prefix}{song['Title']} - {song['Artist']} | {d_text} | Book {song['Book']}, Page {song['Page']}"
         
+        # Use simple columns for the result row
         row_cols = st.columns([7.5, 1.2, 1.2])
         
         with row_cols[0]:
-            # THE FIX: Only process chords and images inside the expander
             with st.expander(header):
                 if song['Chords'].strip():
                     st.write(f"**Chords:** {song['Chords']}")
                     
-                    # Image loading happens here - ONLY when expanded
                     if not chord_lib.empty:
                         s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
                         if s_chords:
-                            # Limited to max 6 columns for stability
-                            n_cols = min(len(s_chords), 6)
-                            c_grid = st.columns(n_cols)
-                            for c_idx, c_name in enumerate(s_chords):
-                                match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
-                                if not match.empty:
-                                    with c_grid[c_idx % n_cols]:
-                                        st.image(str(match.iloc[0]['URL']), width=70, caption=c_name)
+                            # Using a horizontal container instead of nested st.columns
+                            with st.container():
+                                chord_display_cols = st.columns(min(len(s_chords), 8))
+                                for c_idx, c_name in enumerate(s_chords):
+                                    match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
+                                    if not match.empty:
+                                        with chord_display_cols[c_idx % 8]:
+                                            st.image(str(match.iloc[0]['URL']), width=65)
+                                            st.caption(c_name)
                 
                 if song['Body']:
                     st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
 
         with row_cols[1]:
-            if st.button("➕ List", key=f"btn_l_{idx}_{i}"):
+            if st.button("➕ List", key=f"lbtn_{idx}_{i}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
                     st.toast(f"Added {song['Title']}")
@@ -176,15 +187,6 @@ def main():
         with row_cols[2]:
             if song['URL']:
                 st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
-
-    # --- SIDEBAR PLAYLIST ---
-    if st.session_state.playlist:
-        st.sidebar.divider()
-        st.sidebar.subheader(f"Playlist ({len(st.session_state.playlist)})")
-        for p in st.session_state.playlist: st.sidebar.caption(f"• {p}")
-        if st.sidebar.button("Clear Playlist"):
-            st.session_state.playlist = []
-            st.rerun()
 
 if __name__ == "__main__":
     main()
