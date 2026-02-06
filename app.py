@@ -5,7 +5,7 @@ import random
 import re
 
 # --- CONFIGURATION ---
-CSV_FILE = "moselele_songs_final_clean.csv" # Pointing to your most recent clean file
+CSV_FILE = "moselele_songs_cleaned.csv" # Pointing to your most recent clean file
 CHORDS_LIB_FILE = "chords.csv"
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
