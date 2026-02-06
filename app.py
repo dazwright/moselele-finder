@@ -45,7 +45,6 @@ def load_data():
         return pd.DataFrame()
     try:
         df = pd.read_csv(target_file)
-        # Force every column to string to prevent rendering errors
         for col in ['Body', 'Chords', 'Title', 'Artist', 'Book', 'Page', 'URL']:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str)
@@ -144,31 +143,31 @@ def main():
         prefix = "🎲 " if st.session_state.random_active else ""
         header = f"{prefix}{song['Title']} - {song['Artist']} | Difficulty: {d_text} | Book {song['Book']}, Page {song['Page']}"
         
-        # Grid layout for the result row
         row_cols = st.columns([7.5, 1.2, 1.2])
         
         with row_cols[0]:
+            # THE FIX: Only process chords and images inside the expander
             with st.expander(header):
-                st.write(f"**Chords:** {song['Chords']}")
-                
-                # Safe Chord Diagram Logic
-                if not chord_lib.empty and song['Chords'].strip():
-                    s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
-                    if s_chords:
-                        # Prevent 0 column error
-                        n_cols = min(len(s_chords), 6)
-                        c_grid = st.columns(n_cols)
-                        for c_idx, c_name in enumerate(s_chords):
-                            match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
-                            if not match.empty:
-                                with c_grid[c_idx % n_cols]:
-                                    st.image(str(match.iloc[0]['URL']), width=70, caption=c_name)
+                if song['Chords'].strip():
+                    st.write(f"**Chords:** {song['Chords']}")
+                    
+                    # Image loading happens here - ONLY when expanded
+                    if not chord_lib.empty:
+                        s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
+                        if s_chords:
+                            # Limited to max 6 columns for stability
+                            n_cols = min(len(s_chords), 6)
+                            c_grid = st.columns(n_cols)
+                            for c_idx, c_name in enumerate(s_chords):
+                                match = chord_lib[chord_lib['Chord Name'].str.lower() == c_name.lower()]
+                                if not match.empty:
+                                    with c_grid[c_idx % n_cols]:
+                                        st.image(str(match.iloc[0]['URL']), width=70, caption=c_name)
                 
                 if song['Body']:
                     st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
 
         with row_cols[1]:
-            # Unique key combining loop index and dataframe index
             if st.button("➕ List", key=f"btn_l_{idx}_{i}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
