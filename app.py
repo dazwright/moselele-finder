@@ -12,13 +12,12 @@ LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-
 def clean_difficulty(val):
     """Extracts numbers from messy strings and scales them to 5."""
     try:
-        if pd.isna(val) or val == "":
+        if pd.isna(val) or val == "" or str(val).strip().lower() == "na":
             return 0
-        # Remove everything except digits
         num_str = re.sub(r'\D', '', str(val))
         if num_str:
-            # If it's a 10-point scale (common in Moselele), scale down
             score = int(num_str)
+            # If original was 1-10, scale to 1-5. If already 1-5, keep it.
             if score > 5:
                 return min(5, round(score / 2))
             return score
@@ -39,8 +38,9 @@ def load_data():
     df['Chords'] = df['Chords'].fillna("").astype(str)
     df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
     df['Book'] = df['Book'].fillna("Other").astype(str)
+    df['Page'] = df['Page'].fillna("NA").astype(str)
     
-    # 2. THE FIX: Robust Difficulty Parsing
+    # 2. Difficulty Scaling
     df['Difficulty_5'] = df['Difficulty'].apply(clean_difficulty)
     
     return df
@@ -116,14 +116,14 @@ def main():
     if book_filter:
         filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
 
-    # Apply Random Logic or Default 50 Load
+    # Initial Load or Random Picks
     if pick_1:
         filtered_df = filtered_df.sample(1)
     elif pick_10:
         filtered_df = filtered_df.sample(min(10, len(filtered_df)))
     elif not is_filtering:
-        # Default 50 random, excluding NAs from top results if possible
-        filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5', ascending=False)
+        # Load 50 random and sort by difficulty (Ascending: easiest first)
+        filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5', ascending=True)
 
     # --- PLAYLIST ---
     st.sidebar.divider()
@@ -141,20 +141,23 @@ def main():
     for _, song in filtered_df.iterrows():
         song_id = f"{song['Title']} ({song['Artist']})"
         
+        # Difficulty logic
         diff_score = int(song['Difficulty_5'])
-        diff_display = f"{diff_score}/5" if diff_score > 0 else "NA"
+        diff_display = f"Difficulty: {diff_score}/5" if diff_score > 0 else "Difficulty: NA"
         
-        with st.expander(f"{diff_display} | {song['Title']} - {song['Artist']}"):
+        # EXPLICIT HEADER FORMAT: Title - Artist | Difficulty | Book & Page
+        header_text = f"{song['Title']} - {song['Artist']} | {diff_display} | Book {song['Book']}, Page {song['Page']}"
+        
+        with st.expander(header_text):
             c1, c2, c3 = st.columns([2, 2, 2])
+            
             if c1.button("Add to Playlist", key=f"add_{song['Title']}"):
                 if song_id not in st.session_state.playlist:
                     st.session_state.playlist.append(song_id)
                     st.toast(f"Added {song['Title']}")
 
-            c2.write(f"**Book:** {song['Book']} | **Page:** {song['Page']}")
+            c2.markdown(f"**Chords:** `{song['Chords']}`")
             c3.markdown(f"[View Original PDF]({song['URL']})")
-
-            st.markdown(f"**Chords:** `{song['Chords']}`")
 
             if song['Body']:
                 st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
