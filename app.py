@@ -13,6 +13,25 @@ MEDIA_DIR = "media"
 FAVICON_PATH = os.path.join(MEDIA_DIR, "moselele-icon-black.jpg")
 LOGO_PATH = os.path.join(MEDIA_DIR, "moselele-logo-black_v_small.jpg")
 
+# --- CALLBACKS (CRITICAL FOR PLAYLIST) ---
+def handle_playlist_click(song_id):
+    if "playlist" not in st.session_state:
+        st.session_state.playlist = []
+    if song_id not in st.session_state.playlist:
+        st.session_state.playlist.append(song_id)
+
+def clear_playlist():
+    st.session_state.playlist = []
+
+def add_genre(genre):
+    if genre not in st.session_state.active_genres:
+        st.session_state.active_genres.append(genre)
+
+# --- TEXT PROCESSING ---
+def bold_bracketed_chords(text):
+    """Finds [Am] and turns it into **[Am]**"""
+    return re.sub(r'(\[.*?\])', r'**\1**', text)
+
 @st.cache_data
 def load_chord_library():
     if not os.path.exists(CHORDS_LIB_FILE): return pd.DataFrame()
@@ -75,39 +94,26 @@ def main():
     # --- SIDEBAR ---
     if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, width=150)
     st.sidebar.header("Search & Filter")
-    
     search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
     
-    # Genres filter linked to session state
-    selected_genres = st.sidebar.multiselect("Genres", options=unique_genres, key="active_genres")
+    st.sidebar.multiselect("Genres", options=unique_genres, key="active_genres")
 
     st.sidebar.divider()
     st.sidebar.subheader("Randomisers")
-    r1, r2 = st.sidebar.columns(2)
-    if r1.button("Pick 1"):
-        st.session_state.random_active, st.session_state.rcount = True, 1
-        st.rerun()
-    if r2.button("Pick 10"):
-        st.session_state.random_active, st.session_state.rcount = True, 10
-        st.rerun()
-    
-    if st.sidebar.button("Clear Randomisers"):
-        st.session_state.random_active = False
-        st.rerun()
+    c_r1, c_r2 = st.sidebar.columns(2)
+    c_r1.button("Pick 1", on_click=lambda: st.session_state.update({"random_active": True, "rcount": 1}))
+    c_r2.button("Pick 10", on_click=lambda: st.session_state.update({"random_active": True, "rcount": 10}))
+    st.sidebar.button("Clear Randomisers", on_click=lambda: st.session_state.update({"random_active": False}))
 
     # --- GENRES CLOUD ---
     st.sidebar.divider()
     st.sidebar.subheader("Genres")
     if genre_counts:
         sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
-        for g, count in sorted_genres[:25]:
-            # Use columns or small buttons for the cloud
-            if st.sidebar.button(f"{g} ({count})", key=f"cloud_{g}"):
-                if g not in st.session_state.active_genres:
-                    st.session_state.active_genres.append(g)
-                    st.rerun()
+        for g, count in sorted_genres[:20]:
+            st.sidebar.button(f"{g} ({count})", key=f"cloud_{g}", on_click=add_genre, args=(g,))
 
     # --- PLAYLIST SIDEBAR ---
     st.sidebar.divider()
@@ -115,9 +121,9 @@ def main():
     if st.session_state.playlist:
         for p in st.session_state.playlist:
             st.sidebar.caption(f"• {p}")
-        if st.sidebar.button("Clear Playlist"):
-            st.session_state.playlist = []
-            st.rerun()
+        st.sidebar.button("Clear Playlist", on_click=clear_playlist)
+    else:
+        st.sidebar.info("Your playlist is empty.")
 
     # --- FILTERING LOGIC ---
     f_df = df.copy()
@@ -127,12 +133,12 @@ def main():
         f_df = f_df[f_df['Title'].str.lower().str.contains(search_query) | f_df['Artist'].str.lower().str.contains(search_query) | f_df['Body'].str.lower().str.contains(search_query)]
     if book_filter:
         f_df = f_df[f_df['Book'].isin(book_filter)]
-    if selected_genres:
-        f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in selected_genres))]
+    if st.session_state.active_genres:
+        f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in st.session_state.active_genres))]
 
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
-    elif not any([search_query, book_filter, selected_genres, seasonal]):
+    elif not any([search_query, book_filter, st.session_state.active_genres, seasonal]):
         f_df = f_df.sample(n=min(50, len(f_df)))
 
     # --- MAIN LOOP ---
@@ -163,14 +169,14 @@ def main():
                                     valid_imgs.append(img_path); valid_caps.append(c_name)
                         if valid_imgs: st.image(valid_imgs, width=75, caption=valid_caps)
                 
-                if song['Body']: st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
+                if song['Body']: 
+                    # APPLY BOLD CHORDS HERE
+                    lyrics_with_bold = bold_bracketed_chords(song['Body'].strip())
+                    st.markdown(f'<div class="lyrics-box">{lyrics_with_bold}</div>', unsafe_allow_html=True)
 
         with list_col:
-            # FIX: Explicitly update state and trigger rerun
-            if st.button("➕ List", key=f"l_{idx}"):
-                if song_id not in st.session_state.playlist:
-                    st.session_state.playlist.append(song_id)
-                    st.rerun() # Force sidebar to update immediately
+            # Re-keying to be index-specific to prevent state loss
+            st.button("➕ List", key=f"plist_add_{idx}", on_click=handle_playlist_click, args=(song_id,))
 
         with pdf_col:
             if song.get('URL'): st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
