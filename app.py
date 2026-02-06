@@ -13,24 +13,36 @@ MEDIA_DIR = "media"
 FAVICON_PATH = os.path.join(MEDIA_DIR, "moselele-icon-black.jpg")
 LOGO_PATH = os.path.join(MEDIA_DIR, "moselele-logo-black_v_small.jpg")
 
-# --- CALLBACKS (CRITICAL FOR PLAYLIST) ---
+# --- CALLBACKS ---
 def handle_playlist_click(song_id):
     if "playlist" not in st.session_state:
         st.session_state.playlist = []
     if song_id not in st.session_state.playlist:
         st.session_state.playlist.append(song_id)
+    st.rerun()
 
 def clear_playlist():
     st.session_state.playlist = []
+    st.rerun()
 
 def add_genre(genre):
+    if "active_genres" not in st.session_state:
+        st.session_state.active_genres = []
     if genre not in st.session_state.active_genres:
         st.session_state.active_genres.append(genre)
+    st.rerun()
 
 # --- TEXT PROCESSING ---
 def bold_bracketed_chords(text):
-    """Finds [Am] and turns it into **[Am]**"""
-    return re.sub(r'(\[.*?\])', r'**\1**', text)
+    if not text:
+        return ""
+    # 1. First, strip out any existing double asterisks to prevent "triple-bolding" 
+    # that causes the Markdown engine to fail and display raw ** symbols.
+    clean_text = text.replace("**", "")
+    
+    # 2. Use a non-greedy regex to find [Chord] and wrap it.
+    # We use \b to ensure we are looking at bracket boundaries.
+    return re.sub(r'(\[[^\]]+\])', r'**\1**', clean_text)
 
 @st.cache_data
 def load_chord_library():
@@ -60,9 +72,32 @@ st.set_page_config(page_title="Moselele Database", page_icon=FAVICON_PATH if os.
 
 st.markdown("""
     <style>
-    .lyrics-box { white-space: pre-wrap; background-color: #fdfdfd; padding: 25px; border: 1px solid #eee; border-radius: 8px; font-size: 1.1rem; line-height: 1.6; color: #31333F; font-family: sans-serif; }
+    .lyrics-box { 
+        white-space: pre-wrap; 
+        background-color: #fdfdfd; 
+        padding: 25px; 
+        border: 1px solid #eee; 
+        border-radius: 8px; 
+        font-size: 1.1rem; 
+        line-height: 1.6; 
+        color: #31333F; 
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
     .stExpander { border: 1px solid #e6e6e6; }
-    .action-btn { text-decoration: none; color: #31333F !important; border: 1px solid #ccc; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; }
+    .action-btn { 
+        text-decoration: none; 
+        color: #31333F !important; 
+        border: 1px solid #ccc; 
+        width: 100%; 
+        height: 38px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        border-radius: 5px; 
+        font-size: 0.85rem; 
+        background-color: #fff; 
+        margin-top: 5px; 
+    }
     .stButton button { width: 100%; height: 38px; margin-top: 5px; }
     .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; margin-bottom: 5px; }
     </style>
@@ -97,7 +132,6 @@ def main():
     search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
-    
     st.sidebar.multiselect("Genres", options=unique_genres, key="active_genres")
 
     st.sidebar.divider()
@@ -170,13 +204,12 @@ def main():
                         if valid_imgs: st.image(valid_imgs, width=75, caption=valid_caps)
                 
                 if song['Body']: 
-                    # APPLY BOLD CHORDS HERE
+                    # APPLY NEW CLEAN BOLD LOGIC
                     lyrics_with_bold = bold_bracketed_chords(song['Body'].strip())
                     st.markdown(f'<div class="lyrics-box">{lyrics_with_bold}</div>', unsafe_allow_html=True)
 
         with list_col:
-            # Re-keying to be index-specific to prevent state loss
-            st.button("➕ List", key=f"plist_add_{idx}", on_click=handle_playlist_click, args=(song_id,))
+            st.button("➕ List", key=f"plist_btn_{idx}", on_click=handle_playlist_click, args=(song_id,))
 
         with pdf_col:
             if song.get('URL'): st.markdown(f'<a href="{song["URL"]}" target="_blank" class="action-btn">📄 PDF</a>', unsafe_allow_html=True)
