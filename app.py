@@ -2,11 +2,29 @@ import streamlit as st
 import pandas as pd
 import os
 import random
+import re
 
 # --- CONFIGURATION ---
 CSV_FILE = "moselele_songs_cleaned.csv"
 FAVICON_URL = "https://www.moselele.co.uk/wp-content/uploads/2015/11/moselele-icon-black.jpg"
 LOGO_URL = "https://www.moselele.co.uk/wp-content/uploads/2013/08/moselele-logo-black_v_small.jpg"
+
+def clean_difficulty(val):
+    """Extracts numbers from messy strings and scales them to 5."""
+    try:
+        if pd.isna(val) or val == "":
+            return 0
+        # Remove everything except digits
+        num_str = re.sub(r'\D', '', str(val))
+        if num_str:
+            # If it's a 10-point scale (common in Moselele), scale down
+            score = int(num_str)
+            if score > 5:
+                return min(5, round(score / 2))
+            return score
+    except:
+        pass
+    return 0
 
 def load_data():
     if not os.path.exists(CSV_FILE):
@@ -15,25 +33,21 @@ def load_data():
     
     df = pd.read_csv(CSV_FILE)
     
-    # Data Cleaning & Defaults
-    df['Body'] = df['Body'].fillna("")
-    
-    # Clean out the MOSELELE.CO.UK watermark and extra whitespace
+    # 1. Standardize Text Columns
+    df['Body'] = df['Body'].fillna("").astype(str)
     df['Body'] = df['Body'].str.replace("MOSELELE.CO.UK", "", case=False, regex=False)
-    
-    df['Chords'] = df['Chords'].fillna("")
-    df['Artist'] = df['Artist'].fillna("Unknown")
+    df['Chords'] = df['Chords'].fillna("").astype(str)
+    df['Artist'] = df['Artist'].fillna("Unknown").astype(str)
     df['Book'] = df['Book'].fillna("Other").astype(str)
     
-    # Scale Difficulty to 5 (Divides original 10-point scale by 2)
-    df['Difficulty_5'] = df['Difficulty'].apply(lambda x: min(5, round(x / 2)) if pd.notnull(x) else 0)
+    # 2. THE FIX: Robust Difficulty Parsing
+    df['Difficulty_5'] = df['Difficulty'].apply(clean_difficulty)
     
     return df
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Moselele song database", page_icon=FAVICON_URL, layout="wide")
 
-# Custom CSS for Standardized Font and UI
 st.markdown("""
     <style>
     .lyrics-box {
@@ -50,12 +64,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE FOR PLAYLIST ---
 if 'playlist' not in st.session_state:
     st.session_state.playlist = []
 
 def main():
-    # Header with Logo
     col_logo, col_title = st.columns([1, 5])
     with col_logo:
         st.image(LOGO_URL, width=120)
@@ -65,24 +77,24 @@ def main():
     df = load_data()
     if df.empty: return
 
-    # --- SIDEBAR SEARCH & FILTERS ---
+    # --- SIDEBAR ---
     st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
     
     search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "").lower()
     chord_query = st.sidebar.text_input("Contains Chords (e.g. G, C)", "").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
+    
     all_books = sorted(df['Book'].unique())
     book_filter = st.sidebar.multiselect("Books", options=all_books)
 
-    # --- RANDOMIZER BUTTONS ---
     st.sidebar.divider()
     st.sidebar.subheader("Randomizers")
     col_r1, col_r2 = st.sidebar.columns(2)
     pick_1 = col_r1.button("Pick 1 Random")
     pick_10 = col_r2.button("Pick 10 Random")
 
-    # --- FILTERING LOGIC ---
+    # --- FILTERING ---
     filtered_df = df.copy()
     is_filtering = any([search_query, chord_query, book_filter, seasonal, pick_1, pick_10])
 
@@ -104,15 +116,16 @@ def main():
     if book_filter:
         filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
 
-    # Apply Random Logic or Default 50 Random Load
+    # Apply Random Logic or Default 50 Load
     if pick_1:
         filtered_df = filtered_df.sample(1)
     elif pick_10:
         filtered_df = filtered_df.sample(min(10, len(filtered_df)))
     elif not is_filtering:
-        filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5')
+        # Default 50 random, excluding NAs from top results if possible
+        filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5', ascending=False)
 
-    # --- PLAYLIST SIDEBAR ---
+    # --- PLAYLIST ---
     st.sidebar.divider()
     st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
     if st.session_state.playlist:
@@ -122,7 +135,7 @@ def main():
             st.session_state.playlist = []
             st.rerun()
 
-    # --- MAIN DISPLAY ---
+    # --- DISPLAY ---
     st.write(f"Displaying **{len(filtered_df)}** songs")
 
     for _, song in filtered_df.iterrows():
@@ -132,7 +145,6 @@ def main():
         diff_display = f"{diff_score}/5" if diff_score > 0 else "NA"
         
         with st.expander(f"{diff_display} | {song['Title']} - {song['Artist']}"):
-            
             c1, c2, c3 = st.columns([2, 2, 2])
             if c1.button("Add to Playlist", key=f"add_{song['Title']}"):
                 if song_id not in st.session_state.playlist:
@@ -145,9 +157,7 @@ def main():
             st.markdown(f"**Chords:** `{song['Chords']}`")
 
             if song['Body']:
-                # Final strip of whitespace to keep it tight
-                clean_body = song['Body'].strip()
-                st.markdown(f'<div class="lyrics-box">{clean_body}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
             else:
                 st.warning("Lyrics could not be displayed.")
 
