@@ -13,7 +13,7 @@ MEDIA_DIR = "media"
 FAVICON_PATH = os.path.join(MEDIA_DIR, "moselele-icon-black.jpg")
 LOGO_PATH = os.path.join(MEDIA_DIR, "moselele-logo-black_v_small.jpg")
 
-# --- CALLBACKS (NO RERUNS NEEDED HERE) ---
+# --- CALLBACKS ---
 def handle_playlist_click(song_id):
     if "playlist" not in st.session_state:
         st.session_state.playlist = []
@@ -30,10 +30,8 @@ def add_genre(genre):
         st.session_state.active_genres.append(genre)
 
 def refresh_page():
-    # Resetting these triggers a natural rerun by Streamlit
     st.session_state.random_active = False
     st.session_state.active_genres = []
-    # Increment seed to ensure the 'sample' method picks new songs
     st.session_state["refresh_seed"] = st.session_state.get("refresh_seed", 0) + 1
 
 # --- TEXT PROCESSING ---
@@ -71,23 +69,12 @@ st.set_page_config(page_title="Moselele Database", page_icon=FAVICON_PATH if os.
 
 st.markdown("""
     <style>
-    /* Force square corners on logo */
     [data-testid="stImage"] img { border-radius: 0px !important; }
-    
-    .lyrics-box { 
-        white-space: pre-wrap; background-color: #fdfdfd; padding: 25px; 
-        border: 1px solid #eee; border-radius: 8px; font-size: 1.1rem; 
-        line-height: 1.6; color: #31333F; font-family: sans-serif; 
-    }
+    .lyrics-box { white-space: pre-wrap; background-color: #fdfdfd; padding: 25px; border: 1px solid #eee; border-radius: 8px; font-size: 1.1rem; line-height: 1.6; color: #31333F; font-family: sans-serif; }
     .lyrics-box b { font-weight: 800; color: #000; }
     .stExpander { border: 1px solid #e6e6e6; }
-    .action-btn { 
-        text-decoration: none; color: #31333F !important; border: 1px solid #ccc; 
-        width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; 
-        border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; 
-    }
+    .action-btn { text-decoration: none; color: #31333F !important; border: 1px solid #ccc; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; background-color: #fff; margin-top: 5px; }
     .stButton button { width: 100%; height: 38px; margin-top: 5px; }
-    .tag-display { display: inline-block; background: #e1f5fe; color: #01579b; padding: 2px 10px; border-radius: 5px; margin-right: 5px; font-size: 0.75rem; font-weight: bold; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -108,16 +95,13 @@ def main():
 
     # --- SIDEBAR ---
     if os.path.exists(LOGO_PATH): st.sidebar.image(LOGO_PATH, width=150)
-    
     st.sidebar.button("🔄 Refresh Selection", on_click=refresh_page, use_container_width=True)
     st.sidebar.divider()
-
     st.sidebar.header("Search & Filter")
     search_query = st.sidebar.text_input("Search", "", key="search_bar").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()) if 'Book' in df.columns else [])
     
-    # Genre Processing for Sidebar
     all_genres = []
     if 'Tags' in df.columns:
         for val in df['Tags']:
@@ -147,8 +131,6 @@ def main():
         for p in st.session_state.playlist:
             st.sidebar.caption(f"• {p}")
         st.sidebar.button("Clear Playlist", on_click=clear_playlist)
-    else:
-        st.sidebar.info("Playlist is empty.")
 
     # --- FILTERING ---
     f_df = df.copy()
@@ -161,7 +143,6 @@ def main():
     if st.session_state.active_genres:
         f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in st.session_state.active_genres))]
 
-    # Logic for 50 songs with random seed
     if st.session_state.random_active:
         f_df = f_df.sample(n=min(st.session_state.rcount, len(f_df)))
     elif not any([search_query, book_filter, st.session_state.active_genres, seasonal]):
@@ -176,22 +157,26 @@ def main():
         r_col, l_col, p_col = st.columns([7.5, 1.2, 1.2])
         with r_col:
             with st.expander(header):
-                if song.get('Tags'):
-                    t_html = "".join([f'<span class="tag-display">{t.strip()}</span>' for t in song['Tags'].split(',') if t.strip()])
-                    st.markdown(t_html, unsafe_allow_html=True)
-
+                # Process Chords Logic
                 if song.get('Chords'):
-                    st.write(f"**Chords:** {song['Chords']}")
+                    s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
+                    v_imgs, v_caps = [], []
+                    
                     if not chord_lib.empty:
-                        s_chords = [c.strip() for c in song['Chords'].split(',') if c.strip()]
-                        v_imgs, v_caps = [], []
                         for cn in s_chords:
                             m = chord_lib[chord_lib['Chord Name'].str.lower() == cn.lower()]
                             if not m.empty:
                                 ip = os.path.join(CHORD_IMG_DIR, str(m.iloc[0]['Path']))
                                 if os.path.exists(ip):
-                                    v_imgs.append(ip); v_caps.append(cn)
-                        if v_imgs: st.image(v_imgs, width=75, caption=v_caps)
+                                    v_imgs.append(ip)
+                                    v_caps.append(cn)
+                    
+                    # THE FIX: If images were found, only show images. If not, show text.
+                    if v_imgs:
+                        st.write("**Chords:**")
+                        st.image(v_imgs, width=75, caption=v_caps)
+                    else:
+                        st.write(f"**Chords:** {song['Chords']}")
                 
                 if song['Body']:
                     st.markdown(f'<div class="lyrics-box">{clean_and_bold_lyrics(song["Body"].strip())}</div>', unsafe_allow_html=True)
