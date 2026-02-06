@@ -98,8 +98,8 @@ def main():
     st.sidebar.image(LOGO_URL, width=150)
     st.sidebar.header("Search & Filter")
     
+    # Removed chord_query box here
     search_query = st.sidebar.text_input("Search (Song, Artist, or Lyrics)", "").lower()
-    chord_query = st.sidebar.text_input("Contains Chords", "").lower()
     seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()))
 
@@ -111,72 +111,3 @@ def main():
     
     if st.sidebar.button("Clear Randomisers"):
         st.session_state.random_active = False
-        st.rerun()
-
-    # --- FILTERING LOGIC ---
-    filtered_df = df.copy()
-    
-    if seasonal:
-        filtered_df = filtered_df[filtered_df['Book'].str.contains('Christmas|Winter|Snow', case=False)]
-    if search_query:
-        filtered_df = filtered_df[
-            (filtered_df['Title'].str.lower().str.contains(search_query)) |
-            (filtered_df['Artist'].str.lower().str.contains(search_query)) |
-            (filtered_df['Body'].str.lower().str.contains(search_query))
-        ]
-    if chord_query:
-        for sc in [c.strip() for c in chord_query.split(',')]:
-            filtered_df = filtered_df[filtered_df['Chords'].str.lower().str.contains(sc)]
-    if book_filter:
-        filtered_df = filtered_df[filtered_df['Book'].isin(book_filter)]
-
-    # Handle Random State
-    if pick_1 or pick_10:
-        st.session_state.random_active = True
-        num = 1 if pick_1 else 10
-        filtered_df = filtered_df.sample(min(num, len(filtered_df)))
-    elif not any([search_query, chord_query, book_filter, seasonal]) and not st.session_state.random_active:
-        filtered_df = filtered_df.sample(min(50, len(filtered_df))).sort_values('Difficulty_5')
-
-    # --- PLAYLIST SIDEBAR ---
-    st.sidebar.divider()
-    st.sidebar.subheader(f"My Playlist ({len(st.session_state.playlist)})")
-    for p_song in st.session_state.playlist:
-        st.sidebar.caption(f"• {p_song}")
-    if st.session_state.playlist and st.sidebar.button("Clear Playlist"):
-        st.session_state.playlist = []
-        st.rerun()
-
-    # --- MAIN DISPLAY ---
-    st.write(f"Displaying **{len(filtered_df)}** songs")
-
-    for _, song in filtered_df.iterrows():
-        song_id = f"{song['Title']} ({song['Artist']})"
-        diff_score = int(song['Difficulty_5'])
-        diff_display = f"Difficulty: {diff_score}/5" if diff_score > 0 else "Difficulty: NA"
-        
-        prefix = "🎲 " if st.session_state.random_active else ""
-        header_text = f"{prefix}{song['Title']} - {song['Artist']} | {diff_display} | Book {song['Book']}, Page {song['Page']}"
-        
-        # Display Row - Adjusted ratios to bring buttons left
-        col_main, col_btn1, col_btn2 = st.columns([7.5, 1.2, 1.2])
-        
-        with col_main:
-            with st.expander(header_text):
-                st.markdown(f"**Chords:** `{song['Chords']}`")
-                if song['Body']:
-                    st.markdown(f'<div class="lyrics-box">{song["Body"].strip()}</div>', unsafe_allow_html=True)
-                else:
-                    st.warning("Lyrics could not be displayed.")
-        
-        with col_btn1:
-            if st.button("➕ List", key=f"plist_{song['Title']}"):
-                if song_id not in st.session_state.playlist:
-                    st.session_state.playlist.append(song_id)
-                    st.toast(f"Added {song['Title']}")
-        
-        with col_btn2:
-            st.markdown(f'<a href="{song["URL"]}" target="_blank" class="pdf-btn">📄 PDF</a>', unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
