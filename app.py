@@ -77,28 +77,31 @@ st.set_page_config(page_title="Moselele Database", page_icon=FAVICON_PATH if os.
 
 st.markdown("""
     <style>
-    /* Ensure the Sidebar Toggle is visible on tablets */
+    /* Sidebar Toggle Visibility */
     [data-testid="stSidebarCollapsedControl"] {
-        background-color: rgba(255, 255, 255, 0.8);
+        background-color: #f0f2f6;
         border-radius: 0 5px 5px 0;
-        padding: 5px;
-        top: 10px;
-        left: 0;
+        top: 15px;
         display: flex !important;
     }
 
-    /* Maximize Tablet Space */
-    .main .block-container { padding-top: 2rem; padding-bottom: 1rem; padding-left: 1rem; padding-right: 1rem; }
-    [data-testid="stHeader"] { height: 0px; }
-    
+    /* Layout & Titles */
+    .main .block-container { padding-top: 2rem; }
     .app-title { font-size: 1.6rem; font-weight: 700; color: #31333F; margin-bottom: 0.5rem; }
 
-    /* Lyrics Box */
-    .lyrics-box { white-space: pre-wrap; background-color: #fdfdfd; padding: 20px; border: 1px solid #eee; border-radius: 8px; font-size: 1.1rem; line-height: 1.6; color: #31333F; }
+    /* Compact Expanders */
+    .stExpander { border: 1px solid #e6e6e6; border-radius: 8px !important; margin-bottom: 5px !important; }
+    
+    /* Lyrics Styling */
+    .lyrics-box { white-space: pre-wrap; background-color: #fdfdfd; padding: 20px; border-radius: 5px; font-size: 1.1rem; line-height: 1.6; color: #31333F; border: 1px solid #fafafa; }
     .lyrics-box b { font-weight: 800; color: #000; }
     
-    /* Small Square Logo fix */
-    [data-testid="stSidebar"] img { border-radius: 0px !important; }
+    /* Genre Cloud Button Styling */
+    div.stButton > button {
+        padding: 2px 8px;
+        font-size: 0.8rem;
+        border-radius: 15px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -108,7 +111,6 @@ if 'active_genres' not in st.session_state: st.session_state.active_genres = []
 if 'view_playlist' not in st.session_state: st.session_state.view_playlist = False
 if 'refresh_seed' not in st.session_state: st.session_state.refresh_seed = 42
 
-# --- MAIN APP ---
 def main():
     st.markdown('<div class="app-title">Moselele song database</div>', unsafe_allow_html=True)
 
@@ -121,19 +123,34 @@ def main():
     
     st.sidebar.divider()
     search_query = st.sidebar.text_input("Search", "").lower()
+    seasonal = st.sidebar.checkbox("Show Christmas/Seasonal Only")
+    
+    diff_options = sorted(df['Difficulty'].unique()) if 'Difficulty' in df.columns else []
+    diff_filter = st.sidebar.multiselect("Difficulty", options=diff_options)
+    
     book_filter = st.sidebar.multiselect("Books", options=sorted(df['Book'].unique()) if 'Book' in df.columns else [])
-    st.sidebar.multiselect("Genres", options=sorted(list(set([t.strip() for val in df['Tags'] for t in val.split(',') if t.strip()]))) if 'Tags' in df.columns else [], key="active_genres")
+    
+    # Genre Cloud Logic
+    all_tags = []
+    if 'Tags' in df.columns:
+        for val in df['Tags']: all_tags.extend([t.strip() for t in val.split(',') if t.strip()])
+    genre_counts = Counter(all_tags)
+    st.sidebar.multiselect("Selected Genres", options=sorted(genre_counts.keys()), key="active_genres")
 
-    # Playlist View Toggle
+    st.sidebar.subheader("Genre Cloud")
+    cloud_cols = st.sidebar.columns(2)
+    sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:16]
+    for i, (g, count) in enumerate(sorted_genres):
+        cloud_cols[i % 2].button(f"{g}", key=f"cloud_{g}", on_click=add_genre, args=(g,))
+
+    # Playlist Toggle
     st.sidebar.divider()
-    playlist_count = len(st.session_state.playlist)
-    if st.sidebar.button(f"❤️ View Playlist ({playlist_count})", use_container_width=True):
+    if st.sidebar.button(f"❤️ View Playlist ({len(st.session_state.playlist)})", use_container_width=True):
         toggle_playlist_view()
 
     if st.session_state.playlist:
         share_url = f"https://moselele-finder.streamlit.app/?playlist={quote(','.join(st.session_state.playlist))}"
-        qr_img = generate_qr(share_url)
-        st.sidebar.image(qr_img, caption="Share Playlist", width=120)
+        st.sidebar.image(generate_qr(share_url), caption="Scan to Share", width=120)
         st.sidebar.button("Clear Playlist", on_click=clear_playlist)
 
     # --- FILTERING ---
@@ -142,40 +159,41 @@ def main():
         f_df['song_id'] = f_df['Title'] + " (" + f_df['Artist'] + ")"
         f_df = f_df[f_df['song_id'].isin(st.session_state.playlist)]
     else:
+        if seasonal:
+            f_df = f_df[f_df['Book'].str.contains('Christmas|Winter', case=False) | f_df['Title'].str.contains('Christmas', case=False)]
         if search_query:
             f_df = f_df[f_df['Title'].str.lower().str.contains(search_query) | f_df['Artist'].str.lower().str.contains(search_query)]
         if book_filter:
             f_df = f_df[f_df['Book'].isin(book_filter)]
+        if diff_filter:
+            f_df = f_df[f_df['Difficulty'].isin(diff_filter)]
         if st.session_state.active_genres:
             f_df = f_df[f_df['Tags'].apply(lambda x: any(g in [s.strip() for s in x.split(',')] for g in st.session_state.active_genres))]
-        if not any([search_query, book_filter, st.session_state.active_genres]):
+        if not any([search_query, book_filter, st.session_state.active_genres, seasonal, diff_filter]):
             f_df = f_df.sample(n=min(50, len(f_df)), random_state=st.session_state.refresh_seed)
 
-    # --- MAIN DISPLAY LOOP ---
+    # --- MAIN DISPLAY ---
     st.write(f"Displaying **{len(f_df)}** songs")
     
     for idx, song in f_df.iterrows():
         song_id = f"{song['Title']} ({song['Artist']})"
         is_loved = song_id in st.session_state.playlist
-        heart = "❤️" if is_loved else "🤍"
+        heart_icon = "❤️" if is_loved else "🤍"
         
-        # COLUMN 1: Song Info | COLUMN 2: PDF | COLUMN 3: Heart
-        # This puts the icons right in the main result bar
-        title_col, pdf_col, heart_col = st.columns([8, 1, 1])
+        # We use a single column to keep the expander wide
+        # Icons are placed inside the expander to keep the search bar "contained"
+        header_text = f"{song['Title']} - {song['Artist']} | Diff: {song['Difficulty']} | {song['Book']} | P.{song['Page']}"
         
-        with title_col:
-            header_text = f"{song['Title']} - {song['Artist']} | {song['Book']} | P.{song['Page']}"
-            exp = st.expander(header_text)
-        
-        with pdf_col:
-            if song.get('URL'):
-                st.markdown(f'<a href="{song["URL"]}" target="_blank" style="text-decoration:none; font-size:1.5rem;">📄</a>', unsafe_allow_html=True)
-        
-        with heart_col:
-            st.button(heart, key=f"btn_h_{idx}", on_click=handle_playlist_click, args=(song_id,))
-
-        with exp:
-            # Chords & Body
+        with st.expander(header_text):
+            # ICON BAR (PDF and Heart)
+            i_col1, i_col2, i_col3 = st.columns([1, 1, 6])
+            with i_col1:
+                st.button(heart_icon, key=f"h_{idx}", on_click=handle_playlist_click, args=(song_id,))
+            with i_col2:
+                if song.get('URL'):
+                    st.markdown(f'<a href="{song["URL"]}" target="_blank" style="text-decoration:none; font-size:1.8rem;">📄</a>', unsafe_allow_html=True)
+            
+            # CHORDS & LYRICS
             chord_str = song.get('Chords', '').strip()
             if chord_str:
                 s_chords = [c.strip() for c in chord_str.split(',') if c.strip()]
